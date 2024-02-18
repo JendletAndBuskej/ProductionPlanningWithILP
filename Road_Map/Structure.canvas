@@ -1,0 +1,20 @@
+{
+	"nodes":[
+		{"id":"af1ca78cf07a77bb","type":"group","x":-260,"y":-440,"width":280,"height":300,"label":"Help functions"},
+		{"id":"d69854a37a179c06","x":-660,"y":40,"width":250,"height":50,"type":"text","text":"[[Settings]]"},
+		{"id":"5ee879e167155e23","x":-660,"y":-60,"width":250,"height":50,"type":"text","text":"[[In_data]]"},
+		{"id":"2a0f213a617bf49e","x":-246,"y":-413,"width":250,"height":50,"type":"text","text":"[[Time_idx_calculator]]"},
+		{"id":"68a1cfe9d6f1569f","x":-246,"y":-340,"width":250,"height":50,"type":"text","text":"[[Heuristic_getter]]"},
+		{"id":"45bf86f0e87b4e63","x":-246,"y":-260,"width":250,"height":50,"type":"text","text":"[[ILP_model_creator]]"},
+		{"id":"343e450a71cba0d8","x":-246,"y":-10,"width":250,"height":50,"type":"text","text":"[[Main]]"},
+		{"id":"c424472a09bb5b1e","type":"text","text":"[[Data_structures]]","x":-246,"y":120,"width":250,"height":50},
+		{"id":"8f67533076be5272","x":160,"y":-10,"width":250,"height":50,"type":"text","text":"[[Plot]]"}
+	],
+	"edges":[
+		{"id":"bf8ecc8748a345e8","fromNode":"af1ca78cf07a77bb","fromSide":"bottom","toNode":"343e450a71cba0d8","toSide":"top"},
+		{"id":"1371e905ad602767","fromNode":"5ee879e167155e23","fromSide":"right","toNode":"343e450a71cba0d8","toSide":"left"},
+		{"id":"b7ca470df870ae5e","fromNode":"d69854a37a179c06","fromSide":"right","toNode":"343e450a71cba0d8","toSide":"left"},
+		{"id":"2f0af32956d0b8a9","fromNode":"c424472a09bb5b1e","fromSide":"top","toNode":"343e450a71cba0d8","toSide":"bottom"},
+		{"id":"eca22c801c01c1ef","fromNode":"343e450a71cba0d8","fromSide":"right","toNode":"8f67533076be5272","toSide":"left"}
+	]
+}
