@@ -2,33 +2,38 @@ import pyomo.environ as pyo
 
 model = pyo.AbstractModel()
 
-model.num_M = pyo.Param(within=pyo.NonNegativeIntegers)
-model.num_O = pyo.Param(within=pyo.NonNegativeIntegers)
-model.num_T = pyo.Param(within=pyo.NonNegativeIntegers)
+model.num_machines = pyo.Param(within=pyo.NonNegativeIntegers)
+model.num_operations = pyo.Param(within=pyo.NonNegativeIntegers)
+model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
 
-model.M = pyo.RangeSet(1, model.num_M)
-model.O = pyo.RangeSet(1, model.num_O)
-model.T = pyo.RangeSet(1, model.num_T)
+model.machines = pyo.RangeSet(1, model.num_machines)
+model.operations = pyo.RangeSet(1, model.num_operations)
+model.time_indices = pyo.RangeSet(1, model.num_time_indices)
 
-model.operation_valid_machine_types = pyo.Param(model.O, model.M)
-model.operation_time = pyo.Param(model.O)
+model.operation_valid_machine_types = pyo.Param(model.operations, model.machines)
+model.operation_time = pyo.Param(model.operations)
 
-model.assigned = pyo.Var(model.M, model.O, model.T, domain=pyo.Binary)
+# model.assigned = pyo.Var(model.machines, model.operations, model.time_indices, within=pyo.Binary)
+model.assigned = pyo.Var(model.machines, model.operations, model.time_indices, domain=pyo.Binary)
 
-model.max = max(model.assigned[m, o, t] * t for m in model.M for o in model.O for t in model.T)
 
+# def obj_function(model):
+    # return pyo.Expression(expr=max(model.assigned[m,o,t] * t for m in model.machines for o in model.operations for t in model.time_indices))
+    # return pyo.max(model.assigned[m,o,t] * t for m in model.machines for o in model.operations for t in model.time_indices)
+# 
+# model.obj = pyo.Objective(rule=obj_function)
 
-def obj_function(model):
-    return pyo.Expression(expr=max(model.assigned[m,o,t] * t for m in model.M for o in model.O for t in model.T))
-    #return pyo.max(model.assigned[m,o,t] * t for m in model.M for o in model.O for t in model.T)
+def objective_rule(model):
+    #return sum(model.time_indices[t] * model.assigned[m, o, t] for (m, o, t) in model.assigned) 
+    return sum(t * model.assigned[m, o, t] for m in model.machines for o in model.operations for t in model.time_indices)  
 
-model.obj = pyo.Objective(rule=obj_function)
-
+model.objective = pyo.Objective(rule=objective_rule)
 
 # placed at once only
 def no_duplicate_const(model, operation):
-    return sum(model.assigned(m,operation,t) for m in model.M for t in model.T) <= 1 
+    return sum(model.assigned[m,operation,t] for m in model.machines for t in model.time_indices) == 1
 
+model.no_duplicate = pyo.Constraint(model.operations, rule=no_duplicate_const)
 
 
 """

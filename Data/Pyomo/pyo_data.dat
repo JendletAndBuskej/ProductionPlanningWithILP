@@ -1,6 +1,6 @@
-param num_M := 2 ;
-param num_O := 3 ;
-param num_T := 4 ;
+param num_machines := 2 ;
+param num_operations := 3 ;
+param num_time_indices := 4 ;
 
 param operation_valid_machine_types :=
 1 1 0

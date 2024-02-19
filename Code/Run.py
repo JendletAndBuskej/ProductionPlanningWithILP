@@ -13,8 +13,12 @@ solver = "glpk"
 def run_script(file_name, data_file_name, solver = solver):
     run_command = "pyomo solve " + file_name + " " + data_file_name + " --solver=" + solver
     os.system(run_command)
+    if not os.path.exists(results_folder):
+        os.makedirs(results_folder)
+        
     iteration_int = find_latest_iteration()
     new_file_name = created_results_file[:-4] + str(iteration_int) + created_results_file[-4:]
+    
     os.rename(created_results_file,results_folder + new_file_name)
 
 def find_latest_iteration():
