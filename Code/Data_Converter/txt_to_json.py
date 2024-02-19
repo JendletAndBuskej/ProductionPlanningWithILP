@@ -109,6 +109,9 @@ def create_json(compressed):
     parsed_json = add_parent(parsed_json)
     parsed_json = add_tree(parsed_json)
 
+    if not os.path.exists(master_path+"/Data/Parsed_Json"):
+        os.makedirs(master_path+"/Data/Parsed_Json")
+    
     with open(master_path+"/Data/Parsed_Json/all_orders.json", "w") as f:
         json.dump(parsed_json, f, indent=4)
 

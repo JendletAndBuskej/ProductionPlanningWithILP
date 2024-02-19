@@ -1,17 +1,15 @@
-# one way to input the data in AMPL format
-# for indexed parameters, the indexes are given before the value
+param num_M := 2 ;
+param num_O := 3 ;
+param num_T := 4 ;
 
-param m := 1 ;
-param n := 2 ;
-
-param a :=
-1 1 3
-1 2 4
+param operation_valid_machine_types :=
+1 1 0
+2 1 0
+3 1 1
 ;
 
-param c:=
-1 2
-2 3
+param operation_time :=
+1 1
+2 1
+3 2
 ;
-
-param b := 1 1 ;

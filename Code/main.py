@@ -2,6 +2,36 @@ import pyomo.environ as pyo
 
 model = pyo.AbstractModel()
 
+model.num_M = pyo.Param(within=pyo.NonNegativeIntegers)
+model.num_O = pyo.Param(within=pyo.NonNegativeIntegers)
+model.num_T = pyo.Param(within=pyo.NonNegativeIntegers)
+
+model.M = pyo.RangeSet(1, model.num_M)
+model.O = pyo.RangeSet(1, model.num_O)
+model.T = pyo.RangeSet(1, model.num_T)
+
+model.operation_valid_machine_types = pyo.Param(model.O, model.M)
+model.operation_time = pyo.Param(model.O)
+
+model.assigned = pyo.Var(model.M, model.O, model.T, domain=pyo.Binary)
+
+model.max = max(model.assigned[m, o, t] * t for m in model.M for o in model.O for t in model.T)
+
+
+def obj_function(model):
+    return pyo.Expression(expr=max(model.assigned[m,o,t] * t for m in model.M for o in model.O for t in model.T))
+    #return pyo.max(model.assigned[m,o,t] * t for m in model.M for o in model.O for t in model.T)
+
+model.obj = pyo.Objective(rule=obj_function)
+
+
+# placed at once only
+def no_duplicate_const(model, operation):
+    return sum(model.assigned(m,operation,t) for m in model.M for t in model.T) <= 1 
+
+
+
+"""
 model.m = pyo.Param(within=pyo.NonNegativeIntegers)
 model.n = pyo.Param(within=pyo.NonNegativeIntegers)
 
@@ -26,3 +56,5 @@ def ax_constraint_rule(m, i):
 
 # the next line creates one constraint for each member of the set model.I
 model.AxbConstraint = pyo.Constraint(model.I, rule=ax_constraint_rule)
+
+"""
