@@ -123,10 +123,10 @@ class Batch_Data:
             json.dump(self.batch_order_list, f, indent=4)
 
 
-batchData = Batch_Data(batch_size=8)
-batchedData = batchData.get_batch()
+batch_data = Batch_Data(batch_size=8)
+batched_data = batch_data.get_batch()
 #print(batchedData)
-batchData.save_as_json()
+batch_data.save_as_json()
 
 
 
