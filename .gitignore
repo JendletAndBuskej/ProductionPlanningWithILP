@@ -1,5 +1,4 @@
 Code/__pycache__*
 /__pycache__
-Data/Parsed_Json
-Data/Raw
+Data/*
 Code/Results*

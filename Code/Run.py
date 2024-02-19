@@ -8,7 +8,6 @@ created_results_file = "results.yml"
 results_folder = "Code/Results/"
 solver = "glpk"
 
-
 ###### functions ######
 def run_script(file_name, data_file_name, solver = solver):
     run_command = "pyomo solve " + file_name + " " + data_file_name + " --solver=" + solver

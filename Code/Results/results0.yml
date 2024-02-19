@@ -9,9 +9,9 @@ Problem:
   Lower bound: 3.0
   Upper bound: 3.0
   Number of objectives: 1
-  Number of constraints: 3
+  Number of constraints: 9
   Number of variables: 24
-  Number of nonzeros: 24
+  Number of nonzeros: 48
   Sense: minimize
 # ----------------------------------------------------------
 #   Solver Information
@@ -24,7 +24,7 @@ Solver:
       Number of bounded subproblems: 1
       Number of created subproblems: 1
   Error rc: 0
-  Time: 0.013147115707397461
+  Time: 0.021540164947509766
 # ----------------------------------------------------------
 #   Solution Information
 # ----------------------------------------------------------
