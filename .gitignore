@@ -1,5 +1,7 @@
 Code/__pycache__*
 /__pycache__
+/Data*
 Data/Parsed_Json
 Data/Raw
 Code/Results*
+/WorkCard.pdf

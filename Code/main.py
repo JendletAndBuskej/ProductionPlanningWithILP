@@ -1,12 +1,13 @@
-########### imports #################
+########### IMPORTS #################
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-############ constructing model ################
-    #parameters and variable definition
+
+############ CONSTRUCTING MODEL ################
+# parameters and variable definition
 model = pyo.AbstractModel()
 model.num_machines = pyo.Param(within=pyo.NonNegativeIntegers)
 model.num_operations = pyo.Param(within=pyo.NonNegativeIntegers)
@@ -17,32 +18,45 @@ model.time_indices = pyo.RangeSet(1, model.num_time_indices)
 model.operation_valid_machine_types = pyo.Param(model.operations, model.machines)
 model.operation_time = pyo.Param(model.operations)
 model.assigned = pyo.Var(model.machines, model.operations, model.time_indices, domain=pyo.Binary)
+big_m = 10000
 
-    #objective function and constraints
+# objective function and constraints
 def objective_rule(model):
-    return sum(t * model.assigned[m, o, t] for m in model.machines for o in model.operations for t in model.time_indices)  
-model.objective = pyo.Objective(rule=objective_rule)
+    #return max(t * model.assigned[m, o, t] for m in model.machines for o in model.operations for t in model.time_indices)  
+    return sum(t * model.assigned[m, o, t] 
+               for m in model.machines
+               for o in model.operations
+               for t in model.time_indices)  
 
 def no_duplicate_const(model, operation):
-    return sum(model.assigned[m,operation,t] for m in model.machines for t in model.time_indices) == 1
-model.no_duplicate = pyo.Constraint(model.operations, rule=no_duplicate_const)
+    return sum(model.assigned[m,operation,t]
+               for m in model.machines 
+               for t in model.time_indices) == 1
 
 def machine_type_const(model, machine, operation):
-    return sum(model.assigned[machine,operation,t] for t in model.time_indices) <= model.operation_valid_machine_types[operation, machine]
-model.machine_type_const = pyo.Constraint(model.machines, model.operations, rule=machine_type_const)
+    return sum(model.assigned[machine,operation,t] 
+            for t in model.time_indices) <= model.operation_valid_machine_types[operation, machine]
 
 def overlap_const(model, machine, operation, time_index):
-    time_interval = (range(min(time_index,4), min(model.operation_time[operation] + time_index, 5)))
-    return sum(model.assigned[machine, o, t] for o in model.operations for t in time_interval) <= 2 - model.assigned[machine, operation, time_index]
+    time_interval = (range(min(time_index,model.time_indices[-2]), 
+                           min(model.operation_time[operation] + time_index, model.time_indices[-1])))
+    return sum(model.assigned[machine, o, t] 
+               for o in model.operations 
+               for t in time_interval) <= 1+big_m*(1-model.assigned[machine, operation, time_index])
+
+model.objective = pyo.Objective(rule=objective_rule)
+model.no_duplicate = pyo.Constraint(model.operations, rule=no_duplicate_const)
+model.machine_type_const = pyo.Constraint(model.machines, model.operations, rule=machine_type_const)
 model.overlap_const = pyo.Constraint(model.machines, model.operations, model.time_indices, rule=overlap_const)
 
-############# solve ############
+############# SOLVE ############
 instance = model.create_instance('Data/Pyomo/pyo_data.dat')
 opt = SolverFactory('glpk')
 result = opt.solve(instance)
 
-    #data management
-def instance_2_numpy(instance_data, shape_array):
+# data management
+def instance_2_numpy(instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                     shape_array: np.ndarray | list = [] ) -> any:
     """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
     The return will be a numpy array/matrix but just the value in the case of a single value (dimension of 0).
     In the case of a single value the shape_array should be an empty array "[]".
@@ -69,13 +83,14 @@ def instance_2_numpy(instance_data, shape_array):
                     solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
     return(solution_matrix)
 
-instance_num_machines = instance_2_numpy(instance.num_machines,[])
-instance_num_operations = instance_2_numpy(instance.num_operations,[])
-instance_num_time_indices = instance_2_numpy(instance.num_time_indices,[])
+instance_num_machines = instance_2_numpy(instance.num_machines)
+instance_num_operations = instance_2_numpy(instance.num_operations)
+instance_num_time_indices = instance_2_numpy(instance.num_time_indices)
 instance_operation_time = instance_2_numpy(instance.operation_time, [instance_num_operations])
-instance_solution_matrix = instance_2_numpy(instance.assigned,[instance_num_machines,instance_num_operations,instance_num_time_indices])
+solution_shape = [instance_num_machines, instance_num_operations, instance_num_time_indices]
+instance_solution_matrix = instance_2_numpy(instance.assigned, solution_shape)
 
-############# plot ############
+############# PLOT ############
 def plot_gantt(gantt_matrix, operations_times): #operation_time?
     fig, ax = plt.subplots()
     gantt_dims = gantt_matrix.shape
