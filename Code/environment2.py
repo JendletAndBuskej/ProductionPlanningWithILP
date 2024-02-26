@@ -9,19 +9,20 @@ import pyomo as pyo
 import pandas as pd
 
 ############# ENVIRONMENT_CLASS_##############
-
 class Environment:
     def __init__(self, data_json: str) -> None:
         with open(data_json, "r") as f:
-            orders_json = json.load(f)
+            self.orders_json = json.load(f)
+        for data in self.orders_json:
+            self.orders_json[data]
         # class-variables that is zero should be set from json here and probably need another help function to do so
         self.machines = 0
         self.operations = 0
         self.orders = 0    # is it easy to make them ordered, from time low to high
 
-        self.schedule_matrix = initial_schedule(self.orders, len(self.operations), 
+        self.schedule_matrix = self.initial_schedule(self.orders, len(self.operations), 
                                                 len(self.machines))    #order id = index in matrix
-        self.last_sent_operations = []  #list of operations, list of operations, time_interval 
+        self.last_sent_indices = []  #list of machines, list of operations, time_interval 
 
     def unlock_order(self, amount, t_interval , order_id=[0]):
         """this will return the input dict that ILP takes as input.
@@ -50,7 +51,34 @@ class Environment:
 
     
     ############ HELP_FUNCTIONS ###############
+    def initial_schedule(self, orders, num_operations, num_machines):
+        """this will return a semi-bad schedule that dosn't break
+        any constraints. It assumes that all operations is of the
+        same length and that order.get_operations() is sorted so that 
+        placing the operations in that order wont break precedence constraint.
+        """
+        def find_space(operation, min_time, schedule, schedule2d):
+            if (min_time < schedule.shape[2]):
+                for time in range(min_time, schedule.shape[2]):
+                    for machine in operation.get_valid_machines():
+                        if (schedule_2d[machine, time] == 0):
+                            min_time = time + 1
+                            schedule_2d[machine, time] = 1
+                            schedule[machine, operation, time] = 1
+                            return(min_time, schedule, schedule2d)
+            min_time = schedule.shape[2]
+            np.append(schedule2d, np.zeros(schedule2d.shape[0]), axis=1)
+            np.append(schedule, np.zeros(schedule.shape[0:1]), axis=2)
+            return(find_space(operation, min_time, schedule, schedule2d))
 
+        schedule = np.zeros([num_machines, num_operations, 1])
+        schedule_2d = np.zeros([num_machines, 1])
+        for order in orders:
+            min_time = 0
+            for operation in order.get_operations():
+                schedule, min_time, schedule_2d = find_space(operation, min_time,
+                                                            schedule, schedule_2d)
+        return(schedule)
 
 
 
@@ -85,34 +113,7 @@ class Environment:
 
 
 ################# HELP_FUNCTIONS #####################
-def initial_schedule(orders, num_operations, num_machines):
-    """this will return a semi-bad schedule that dosn't break
-    any constraints. It assumes that all operations is of the
-    same length and that order.get_operations() is sorted so that 
-    placing the operations in that order wont break precedence constraint.
-    """
-    def find_space(operation, min_time, schedule, schedule2d):
-        if (min_time < schedule.shape[2]):
-            for time in range(min_time, schedule.shape[2]):
-                for machine in operation.get_valid_machines():
-                    if (schedule_2d[machine, time] == 0):
-                        min_time = time + 1
-                        schedule_2d[machine, time] = 1
-                        schedule[machine, operation, time] = 1
-                        return(min_time, schedule, schedule2d)
-        min_time = schedule.shape[2]
-        np.append(schedule2d, np.zeros(schedule2d.shape[0]), axis=1)
-        np.append(schedule, np.zeros(schedule.shape[0:1]), axis=2)
-        return(find_space(operation, min_time, schedule, schedule2d))
 
-    schedule = np.zeros([num_machines, num_operations, 1])
-    schedule_2d = np.zeros([num_machines, 1])
-    for order in orders:
-        min_time = 0
-        for operation in order.get_operations():
-            schedule, min_time, schedule_2d = find_space(operation, min_time,
-                                                        schedule, schedule_2d)
-    return(schedule)
 
 def id_handler(amount, id_list, max_id):
     """this will just return ordered id_list. In the case of id_list = [0]
