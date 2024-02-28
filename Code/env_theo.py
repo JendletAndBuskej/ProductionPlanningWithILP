@@ -1,7 +1,7 @@
 ############## IMPORT ################
 import numpy as np
 import matplotlib.pyplot as plt
-import os, json
+import os, json, re
 from classes import Operation, Order
 from Data_Converter.batch_data import Batch_Data
 import pyomo as pyo
@@ -63,7 +63,7 @@ class Environment:
             for machine in range(num_machine_type):
                 machines[machine_id] = machine_type
                 machine_id += 1
-        return machines
+        return(machines)
 
     def initialize_operations(self) -> list:
         """Instanciates and returns all operations as a list, 
@@ -73,29 +73,42 @@ class Environment:
         Args:
             None
         """
+        # finds all machine ids of a machine type
+        def get_valid_machine_ids(machine_types: list[str]) -> list[int]:
+            valid_machine_ids = []
+            for m_type in machine_types:
+                m_type_as_int = self.find_int_in_string(m_type)
+                for machine_id, machine_type in self.machines.items():
+                    machine_type_as_int = self.find_int_in_string(machine_type)
+                    if machine_type_as_int == m_type_as_int:
+                        valid_machine_ids += [machine_id]
+            return(valid_machine_ids)
+
         operations = []
         for iOp, operation in enumerate(self.orders_json):
             operation_data = self.orders_json[operation]
             exec_time = operation_data["startup_time"] + operation_data["operation_time"]
             num_operators = operation_data["num_operator"]
             parent_name = operation_data["parent"]
-            valid_machines = operation_data["linetype"]
+            valid_machines_types = operation_data["linetype"]
+            valid_machine_ids = get_valid_machine_ids(valid_machines_types)
             oper = Operation(id=iOp, 
                              name=operation, 
                              execution_time=exec_time,
-                             valid_machines=valid_machines, 
+                             valid_machine_ids=valid_machine_ids, 
                              num_operators=num_operators, 
                              parent_name=parent_name)
             operations += [oper]
-        # Once every operation have been instanciated, the parents are set
+        # once every operation have been instanciated, the parents are set
         for operation in operations:
             operation.set_parent(operations)
-        return operations
+        return(operations)
     
-    def initialize_orders(self) -> dict:
-        """Instanciates and returns all Orders as a dict. 
-        Each Key is on the format 'OrderX' and the value is a list of the class Operations.
-        The Operations represents the operations needed to be completed to finish the Order. 
+    def initialize_orders(self) -> list["Order"]:
+        """Instanciates and returns a list of all Orders. 
+        Each element of the list is of the class Order which in itself contains all the
+        operations needed to be completed to finish the Order. The class Order also contains
+        the Due Date and ID + Name 
 
         Args:
             None
@@ -108,8 +121,16 @@ class Environment:
                 orders[order_tree] = []     
             orders[order_tree] += [self.operations[iOp]]
             self.operations[iOp].print_info()
-        orders = {f'Order{i+1}': v for i, (k, v) in enumerate(orders.items())} 
-        return orders
+        orders_list = []
+        for iOrd, order_tree in enumerate(orders):
+            ord = Order(id=iOrd,
+                        name=order_tree,
+                        operations=orders[order_tree])
+            orders_list += [ord]
+            ord.print_info()
+        #orders = {f'Order{i+1}': v for i, (k, v) in enumerate(orders.items())} 
+
+        return(orders_list)
 
     
     ############# HELP_FUNCTIONS ###############
@@ -163,9 +184,11 @@ class Environment:
             pass
         pass
 
-    def plot(t_interval):
+    def plot(self, t_interval):
         pass
-
+    
+    def find_int_in_string(self, string):
+        return [int(match) for match in re.findall(r'\d+', string)]
 
 
 ################# HELP_FUNCTIONS #####################
@@ -186,6 +209,7 @@ def id_handler(amount, id_list, max_id):
         id = id_list
     sorted_id = id.sort()
     return(sorted_id)
+
 
 
 if (__name__ == "__main__"):
