@@ -1,4 +1,5 @@
 ############## IMPORT ################
+from functools import partial
 from math import ceil
 from re import T
 import numpy as np
@@ -19,7 +20,12 @@ class Environment:
         self.machines = 0
         self.operations = 0
         self.orders = 0    # is it easy to make them ordered, from time low to high
+        self.time_index_value = 0
+        self.longest_exec = 0
 
+        self.oper_exec_num_unit = {}
+        for i in range(len(self.operations)):
+            self.oper_exec_num_unit[None] = {"exec_time": {i:1}}
         self.schedule_matrix = self.initial_schedule(self.orders, len(self.operations), 
                                                 len(self.machines))    #order id = index in matrix
         self.last_sent_indices = []  #list of machines, list of operations, time_interval 
@@ -47,7 +53,43 @@ class Environment:
         part_schedule = self.schedule_matrix[sorted_id, :, t_interval[0]:t_interval[1]]
         return(to_ilp(part_schedule, t_interval))
 
+    def to_ilp(self, part_schedule, t_interval, locked_operations=np.zeros[1,1,1]): #this preset is because machines don't need it
+        """_summary_
 
+        Args:
+            part_schedule (_type_): _description_
+            t_interval (_type_): _description_
+            locked_operations (_type_): this is a 3dim numpy matrix as part schedule
+        """
+        pass
+
+    def update_from_ilp_instance(self, ilp_output):
+        """_summary_
+
+        Args:
+            ilp_output (_type_): _description_
+        """
+        def instance_2_numpy(instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                             shape_array: np.ndarray | list = [] ) -> any:
+        pass
+    pass
+
+    def double_steps(self):
+        """this doubles the amount of steps in the schedule and changes the execution time if
+        operations have longer execution times.
+        """
+        for t in range(self.schedule_matrix.shape[2])[::-1]:
+            zero_matrix = np.zeros(self.schedule_matrix.shape[:,:,1])
+            np.insert(self.schedule_matrix, t, zero_matrix, axis=2)
+        for i in range(self.operations):
+            for j in range(1000):
+                if ((j+1)*self.time_index_value < self.operations[i].get_execution_time()):
+                    self.oper_exec_num_unit["None"]["exec_time"][i] = j
+                    break
+
+
+    def plot(t_interval):
+        pass
 
     
     ############ HELP_FUNCTIONS ###############
@@ -80,35 +122,33 @@ class Environment:
                                                             schedule, schedule_2d)
         return(schedule)
 
-
-
-
-
-    
-    def to_ilp(self, part_schedule, t_interval, locked_operations=np.zeros[1,1,1]): #this preset is because machines don't need it
-        """_summary_
-
-        Args:
-            part_schedule (_type_): _description_
-            t_interval (_type_): _description_
-            locked_operations (_type_): this is a 3dim numpy matrix as part schedule
-        """
+    def time_cut(self, t_interval):
         
-        #pass
-
-    def update_from_ilp_instance(self, ilp_output):
-        """_summary_
-
-        Args:
-            ilp_output (_type_): _description_
-        """
-        def instance_2_numpy(instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
-                             shape_array: np.ndarray | list = [] ) -> any:
+        def look_plane(plane, t_between, oper_list):
+            for m in range(plane.shape[0]):
+                for o in range(plane.shape[1]):
+                    unit_check = self.oper_exec_num_unit[o] > t_between 
+                    if (plane[m,o] == 1 and unit_check):
+                        oper_list.append(o)
+                        break
+            return(oper_list)
+                            
+        schedules_left = []
+        fake_cut = 0
+        if (t_interval[0] - int(self.longest_exec/self.time_index_value) > 0):
+            fake_cut = int(t_interval[0] - self.longest_exec)
+        for t in range(fake_cut, t_interval[0]):
+            plane = self.schedule_matrix[:,:,t]
+            schedules_left = look_plane(plane, t_interval[0]-t,schedules_left)
+        schedules_right = []
+        fake_cut = int(t_interval[1] - self.longest_exec)
+        for t in range(fake_cut, t_interval[1]):
+            plane = self.schedule_matrix[:,:,t]
+            schedules_right = look_plane(plane, t_interval[1]-t,schedules_right)
+        return
+                
         pass
-    pass
 
-    def plot(t_interval):
-        pass
 
 
 
