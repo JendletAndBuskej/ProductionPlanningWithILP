@@ -10,10 +10,6 @@ import pandas as pd
 ############# ENVIRONMENT_CLASS_##############
 class Environment:
     def __init__(self, data_json: dict) -> None:
-        # with open(data_json, "r") as f:
-            # self.orders_json = json.load(f)
-        # for data in self.orders_json:
-            # self.orders_json[data]
         self.orders_json = data_json
         # class-variables that is zero should be set from json here and probably need another help function to do so
         machine_data_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/Raw/lines_tab.txt"
@@ -53,7 +49,7 @@ class Environment:
         and returns a dict with a machine ID as key and machine type as value
 
         Args:
-            data_path_machine_types (_str_): Path to the data file containing machine data
+            data_path_machine_types (str): Path to the data file containing machine data
         """
         txt_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=1, dtype=int)
         machine_id = 0
@@ -128,8 +124,6 @@ class Environment:
                         operations=orders[order_tree])
             orders_list += [ord]
             ord.print_info()
-        #orders = {f'Order{i+1}': v for i, (k, v) in enumerate(orders.items())} 
-
         return(orders_list)
 
     
@@ -163,11 +157,14 @@ class Environment:
                                                             schedule, schedule_2d)
         return(schedule)
     
-    def to_ilp(self, part_schedule, t_interval):#, locked_operations=np.zeros[1,1,1]): #this preset is because machines don't need it
-        """_summary_
+    #def to_ilp(self, unlocked_operations: list[int], locked_schedule: np.ndarray, t_interval: list[int]) -> dict:
+    def to_ilp(self, unlocked_operations: list[int], locked_schedule: np.ndarray) -> dict:
+        
+        """Converts the data of the schedule to send to the ILP. Includes a list of operations
+        to optimize and the locked schedule
 
         Args:
-            part_schedule (_type_): _description_
+            unlocked_operations (_type_): _description_
             t_interval (_type_): _description_
             locked_operations (_type_): this is a 3dim numpy matrix as part schedule
         """
