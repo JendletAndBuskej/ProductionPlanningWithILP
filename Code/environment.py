@@ -11,15 +11,30 @@ import pandas as pd
 class Environment:
     def __init__(self, data_json: dict) -> None:
         self.orders_json = data_json
-        # class-variables that is zero should be set from json here and probably need another help function to do so
         machine_data_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/Raw/lines_tab.txt"
         self.machines = self.initialize_machines(machine_data_path)
         self.operations = self.initialize_operations()
         self.orders = self.initialize_orders()    # is it easy to make them ordered, from time low to high
-
+        self.time = []
         #self.schedule_matrix = self.initial_schedule(self.orders, len(self.operations), 
         #                                        len(self.machines))    #order id = index in matrix
         self.last_sent_indices = []  #list of machines, list of operations, time_interval 
+
+        ## Test ##
+        #self.schedule_matrix = np.empty([3,3], dtype=object)
+        ## machine
+        #self.schedule_matrix[0,0] = 0
+        #self.schedule_matrix[0,1] = 0
+        #self.schedule_matrix[0,2] = 1
+        ## oper
+        #self.schedule_matrix[1,0] = self.operations[0]
+        #self.schedule_matrix[1,1] = self.operations[1]
+        #self.schedule_matrix[1,2] = self.operations[2]
+        ## stime
+        #self.schedule_matrix[2,0] = 0
+        #self.schedule_matrix[2,1] = 1
+        #self.schedule_matrix[2,2] = 2
+        #self.to_ilp(unlocked_operations_indices=[1], locked_operations_indices=[0,2], time_interval=[0,2])
 
     def unlock_order(self, amount, t_interval , order_id=[0]):
         """this will return the input dict that ILP takes as input.
@@ -116,12 +131,15 @@ class Environment:
             if order_tree not in orders:
                 orders[order_tree] = []     
             orders[order_tree] += [self.operations[iOp]]
-            self.operations[iOp].print_info()
+            #self.operations[iOp].print_info()
         orders_list = []
         for iOrd, order_tree in enumerate(orders):
             ord = Order(id=iOrd,
                         name=order_tree,
                         operations=orders[order_tree])
+            for operation in ord.operations:
+                operation.set_order(ord)
+                #operation.order.print_info()
             orders_list += [ord]
             ord.print_info()
         return(orders_list)
@@ -157,18 +175,72 @@ class Environment:
                                                             schedule, schedule_2d)
         return(schedule)
     
-    #def to_ilp(self, unlocked_operations: list[int], locked_schedule: np.ndarray, t_interval: list[int]) -> dict:
-    def to_ilp(self, unlocked_operations: list[int], locked_schedule: np.ndarray) -> dict:
-        
-        """Converts the data of the schedule to send to the ILP. Includes a list of operations
-        to optimize and the locked schedule
+    def to_ilp(
+               self, 
+               unlocked_operations_indices: list[int], 
+               locked_operations_indices: list[int],
+               time_interval: list[int]
+            ) -> dict:
+        """Converts the data of the schedule to send to the ILP. Includes a list of operation index
+        to optimize and a list of operation index to keep locked. Returns a dict
 
         Args:
-            unlocked_operations (_type_): _description_
-            t_interval (_type_): _description_
-            locked_operations (_type_): this is a 3dim numpy matrix as part schedule
+            unlocked_operations_indices (list[int]): List of operation index to unlock from schedule_matrix.
+            locked_operations_indices (list[int]): List of operation index to keep locked from schedule_matrix.
+            time_interval (list[int]): Time interval to optimize over. (Currently seen as time indices)
         """
-        pass
+        def init_dict(dim_1: int, dim_2: int = 0) -> dict:
+            init_dict = {}
+            if dim_2 == 0:
+                for iDim in range(1,dim_1+1):
+                    init_dict[iDim] = 0
+                return(init_dict)
+            for iDim in range(1,dim_1+1):
+                for jDim in range(1,dim_2+1):
+                    init_dict[(iDim,jDim)] = 0
+            return(init_dict)
+        
+        def get_valid_machines_and_exec_time() -> tuple[dict, dict]:
+            valid_machines = init_dict(len(unlocked_operations_indices), len(self.machines))
+            exec_time = init_dict(len(unlocked_operations_indices))
+            for iUO, unlocked_operation_index in enumerate(unlocked_operations_indices):
+                unlocked_operation = self.schedule_matrix[1,unlocked_operation_index]
+                exec_time[iUO+1] = unlocked_operation.execution_time
+                for machine_id in unlocked_operation.valid_machine_ids:
+                    valid_machines[(iUO+1,machine_id)] = 1
+            return(valid_machines, exec_time)
+
+        def get_locked_operations_info() -> tuple[dict, dict, dict]:
+            locked_operation_machine = init_dict(len(locked_operations_indices))
+            locked_operation_start_time = init_dict(len(locked_operations_indices))
+            locked_operation_exec_time = init_dict(len(locked_operations_indices))
+            for iLO, locked_operation_index in enumerate(locked_operations_indices):
+                locked_operation = self.schedule_matrix[:,locked_operation_index]
+                locked_operation_machine[iLO+1] = locked_operation[0]
+                locked_operation_exec_time[iLO+1] = locked_operation[1].execution_time
+                locked_operation_start_time[iLO+1] = locked_operation[2]
+            return(locked_operation_machine, locked_operation_exec_time, locked_operation_start_time)
+
+        num_machines = { None: len(self.machines)}
+        num_operations = { None: len(unlocked_operations_indices)}
+        num_locked_operations = { None: len(locked_operations_indices)}
+        num_time_indices = { None: time_interval[1] - time_interval[0]}
+        valid_machines, exec_time = get_valid_machines_and_exec_time()
+        locked_oper_machine, locked_oper_exec_time, locked_oper_start_time = get_locked_operations_info()
+        ilp_input = {
+            None: {
+                "num_machines" : num_machines,
+                "num_operations" : num_operations,
+                "num_locked_operations" : num_locked_operations,
+                "num_time_indices" : num_time_indices,
+                "valid_machines" : valid_machines,
+                "exec_time" : exec_time,
+                "locked_oper_machine" : locked_oper_machine,
+                "locked_oper_exec_time" : locked_oper_exec_time,
+                "locked_oper_start_time" : locked_oper_start_time
+            }
+        }
+        return(ilp_input)
 
     def update_from_ilp_instance(self, ilp_output):
         """_summary_
