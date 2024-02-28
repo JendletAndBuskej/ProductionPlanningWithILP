@@ -5,3 +5,4 @@ Data/Parsed_Json
 Data/Raw
 Code/Results*
 /WorkCard.pdf
+Code/Data_Converter/__pycache__

@@ -21,8 +21,8 @@ class Environment:
         self.operations = self.initialize_operations()
         self.orders = self.initialize_orders()    # is it easy to make them ordered, from time low to high
 
-        self.schedule_matrix = self.initial_schedule(self.orders, len(self.operations), 
-                                                len(self.machines))    #order id = index in matrix
+        #self.schedule_matrix = self.initial_schedule(self.orders, len(self.operations), 
+        #                                        len(self.machines))    #order id = index in matrix
         self.last_sent_indices = []  #list of machines, list of operations, time_interval 
 
     def unlock_order(self, amount, t_interval , order_id=[0]):
@@ -48,7 +48,13 @@ class Environment:
         part_schedule = self.schedule_matrix[sorted_id, :, t_interval[0]:t_interval[1]]
         return(self.to_ilp(part_schedule, t_interval))
 
-    def initialize_machines(self, data_path_machine_types : str):
+    def initialize_machines(self, data_path_machine_types : str) -> dict:
+        """Extracts machine data from the machine txt file 'lines_tab.txt'
+        and returns a dict with a machine ID as key and machine type as value
+
+        Args:
+            data_path_machine_types (_str_): Path to the data file containing machine data
+        """
         txt_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=1, dtype=int)
         machine_id = 0
         machines = {}
@@ -59,19 +65,41 @@ class Environment:
                 machine_id += 1
         return machines
 
-    def initialize_operations(self):
+    def initialize_operations(self) -> list:
+        """Instanciates and returns all operations as a list, 
+        where the elements are of the class 'Operation'. 
+        The ID of an operation is the same as it's index in list.
+
+        Args:
+            None
+        """
         operations = []
         for iOp, operation in enumerate(self.orders_json):
             operation_data = self.orders_json[operation]
             exec_time = operation_data["startup_time"] + operation_data["operation_time"]
             num_operators = operation_data["num_operator"]
-            parent = operation_data["parent"]
+            parent_name = operation_data["parent"]
             valid_machines = operation_data["linetype"]
-            oper = Operation(iOp, exec_time, valid_machines, num_operators, parent)
+            oper = Operation(id=iOp, 
+                             name=operation, 
+                             execution_time=exec_time,
+                             valid_machines=valid_machines, 
+                             num_operators=num_operators, 
+                             parent_name=parent_name)
             operations += [oper]
+        # Once every operation have been instanciated, the parents are set
+        for operation in operations:
+            operation.set_parent(operations)
         return operations
     
-    def initialize_orders(self):
+    def initialize_orders(self) -> dict:
+        """Instanciates and returns all Orders as a dict. 
+        Each Key is on the format 'OrderX' and the value is a list of the class Operations.
+        The Operations represents the operations needed to be completed to finish the Order. 
+
+        Args:
+            None
+        """
         orders = {}
         for iOp, operation in enumerate(self.orders_json):
             operation_data = self.orders_json[operation]
@@ -79,11 +107,12 @@ class Environment:
             if order_tree not in orders:
                 orders[order_tree] = []     
             orders[order_tree] += [self.operations[iOp]]
-        
+            self.operations[iOp].print_info()
+        orders = {f'Order{i+1}': v for i, (k, v) in enumerate(orders.items())} 
         return orders
 
     
-    ############ HELP_FUNCTIONS ###############
+    ############# HELP_FUNCTIONS ###############
     def initial_schedule(self, orders, num_operations, num_machines):
         """this will return a semi-bad schedule that dosn't break
         any constraints. It assumes that all operations is of the
@@ -163,5 +192,4 @@ if (__name__ == "__main__"):
     batch_size = 2
     batch_data = Batch_Data(batch_size=batch_size)
     batched_data = batch_data.get_batch()
-    print(len(batched_data))
     env = Environment(batched_data)
