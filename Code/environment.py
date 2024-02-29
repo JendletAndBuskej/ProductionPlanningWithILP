@@ -15,14 +15,17 @@ class Environment:
         self.orders_json = data_json
         machine_data_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/Raw/lines_tab.txt"
         self.machines = self.initialize_machines(machine_data_path)
-        self.operations_data = self.initialize_operations_data()
+        self.initialize_operations_data()
         self.orders = self.initialize_orders()
         self.time = []
         self.time_step_size = None
         self.schedule = self.initial_schedule()
+        self.precedence = self.initialize_precedence()
+        self.time = []
         self.max_oper = 1
         
-        self.last_sent_indices = []  #list of machines, list of operations, time_interval 
+        # list of operations that are sent into the ilp 
+        self.mapping_unlocked_operations = []  # [ActualIndex]   
     
     ### INITIALIZATION ###
     def initialize_machines(self, data_path_machine_types: str) -> dict:
@@ -78,8 +81,9 @@ class Environment:
             operations += [oper]
         # once every operation have been instanciated, the parents are set
         for operation in operations:
-            operation.set_parent(operations)
-        return (operations)
+            operation.set_parent(operations)    
+        self.operations_data = operations
+    
     
     def initialize_orders(self) -> list["Order"]:
         """Instanciates and returns a list of all Orders. 
@@ -109,6 +113,27 @@ class Environment:
             orders_list += [ord]
             #ord.print_info()
         return (orders_list)
+    
+    list_valid_statements = ["S1", "S2"]
+    
+    def initialize_precedence(self) -> np.ndarray:
+        """Instanciates and returns a numpy matrix of the precedence. Dim: [num_oper x num_oper].
+        The value 1 at index (i,j) indicates that Operation j must be executed AFTER the completion
+        of operation i. Otherwise the element is zero.  
+
+        Args:
+            None
+        """
+        num_operations = len(self.operations_data)
+        precedence = np.zeros([num_operations, num_operations])
+        operation_list = self.schedule[1,:]
+        for iOp,operation in enumerate(operation_list):
+            precedence_operation = operation.parent
+            precedence_index = operation_list.index(precedence_operation)
+            precedence[iOp,precedence_index] = 1
+            
+        
+        return precedence
     
     def initial_schedule(self) -> np.ndarray:
         """this will return a semi-bad schedule that dosn't break
@@ -150,8 +175,8 @@ class Environment:
             self, 
             num_orders: int,
             t_interval: list[int],
-            order_idx: list[int] =[0]
-        ) -> tuple[list["Operation"], list["Operation"]]:
+            order_idx: list[int] = [0]
+        ) -> tuple[list[int], list[int]]:
         """this will return the input dict that ILP takes as input.
         it will unlock the amount of of operations given
 
@@ -266,12 +291,22 @@ class Environment:
                 locked_operation_exec_time[iLO+1] = locked_operation[1].execution_time
                 locked_operation_start_time[iLO+1] = locked_operation[2]
             return (locked_operation_machine, locked_operation_exec_time, locked_operation_start_time)
-
+        
+        def map_unlocked_operations():
+            self.mapping_unlocked_operations.clear()
+            self.mapping_unlocked_operations = unlocked_operations_indices
+            print(self.mapping_unlocked_operations)
+        
+        def get_precedence():
+            pass
+        
         num_machines = { None: len(self.machines)}
         num_operations = { None: len(unlocked_operations_indices)}
+        map_unlocked_operations()
         num_locked_operations = { None: len(locked_operations_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
+        precedence = get_precedence()
         locked_oper_machine, locked_oper_exec_time, locked_oper_start_time = get_locked_operations_info()
         ilp_input = {
             None: {
@@ -280,6 +315,7 @@ class Environment:
                 "num_locked_operations" : num_locked_operations,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
+                # "precedence" : precedence,
                 "exec_time" : exec_time,
                 "locked_oper_machine" : locked_oper_machine,
                 "locked_oper_exec_time" : locked_oper_exec_time,
@@ -288,27 +324,91 @@ class Environment:
         }
         return (ilp_input)
 
-    def run_ilp(self, ilp_dict: dict): #-> pyo.AbstractModel:
-        """Runs the ILP, from the ILP file. 
-        """
-        pass
+    # Don't know the class of the solution atm
+    #def run_ilp(self, ilp_dict: dict) -> pyo.AbstractModel | pyo.ConcreteModel:
+    def run_ilp(self, ilp_dict: dict):
+        """Runs the ILP, from the ILP file. Returns the solved instance of the ILP.
         
-    def update_from_ilp_instance(self, ilp_output) -> None:
-        """_summary_
+        Args:
+            ilp_dict (dict): a dict corresponding to the content of a .dat file.
+        """
+        ilp_solution = create_and_run_ilp(ilp_dict)
+        return (ilp_solution)
+        
+    # Don't know the class of instance atm
+    def update_from_ilp_solution(self, ilp_solution) -> None:
+        """Updates Environment's class variable self.schedule according to the solution of the ILP.
 
         Args:
-            ilp_output (_type_): _description_
+            ilp_solution (UNKNOWN): the solved instance of the ilp
         """
-        def instance_2_numpy(instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
-                             shape_array: np.ndarray | list = [] ) -> any:
-            pass
-        pass
+        def instance_2_numpy(
+                instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                shape_array: np.ndarray | list = [] 
+            ) -> float | np.ndarray:
+            """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
+            The return will be a numpy array/matrix but just the value in the case of a single value (dimension of 0).
+            In the case of a single value the shape_array should be an empty array "[]".
 
-    def plot(self, t_interval) -> None:
-        pass
+            Args:
+                instance_data (pyomo.Var, pyomo.Param or pyomo.Set): This is your input data ex. "instance.num_machines" and should always start with "instance.".
+                shape_array (Array or np.array): This is the dimensionality of your input data ex. "[3,2,4]". What you would expect from "np.shape".
+            """
+            df = pd.DataFrame.from_dict(instance_data.extract_values(), orient='index')
+            solution_flat_matrix = df.to_numpy()
+            if len(shape_array) == 0:
+                return(solution_flat_matrix[0,0])
+            if len(shape_array) == 1:
+                return(solution_flat_matrix[:,0])
+            solution_matrix = np.empty(shape_array)
+            if len(shape_array) == 2:
+                for i in range(shape_array[0]):
+                    for j in range(shape_array[1]):
+                        solution_matrix[i,j] = solution_flat_matrix[shape_array[1]*i + j,0]
+            if len(shape_array) == 3:
+                for i in range(shape_array[0]):
+                    for j in range(shape_array[1]):
+                        for k in range(shape_array[2]):
+                            solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
+            return (solution_matrix)
+        
+        def update_operation(operation_index: int, ilp_solution: np.ndarray):
+            for operation_plane in ilp_solution[:,operation_index,:]:
+                machine, start_time = np.where(operation_plane == 1)
+                print("\n##### PRINT FROM 'update_operation' #####")
+                print("Machine: ",machine)
+                print("Start Time: ",start_time)
+                print("#########################################\n")
+                self.schedule[0,operation_index] = machine
+                self.schedule[2,operation_index] = start_time
+            
+        num_machines = len(self.machines)
+        num_unlocked_oper = instance_2_numpy(ilp_solution.num_operations)
+        num_time_indices = instance_2_numpy(ilp_solution.num_time_indices)
+        solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
+        ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
+        for operation in range(num_unlocked_oper):
+            update_operation(operation, ilp_solution_np)
+
+    ### MISC ###
+    def plot(self, t_interval: list[int]) -> None:
+        # set t_interval default value to be the complete scheme
+        fig, ax = plt.subplots()
+        for operation_index in range(self.schedule.shape[1]):
+            machine_id = self.schedule[0,operation_index]
+            operation = self.schedule[1,operation_index]
+            start_time = self.schedule[2,operation_index]
+            exec_time = operation.execution_time
+            plt.barh(y=machine_id, width=exec_time, left=start_time)#, color=team_colors[row['team']], alpha=0.4)
+        plt.title('Project Management Schedule of Project X', fontsize=15)
+        plt.gca().invert_yaxis()
+        plt.xlim(t_interval)
+        ax.xaxis.grid(True, alpha=0.5)
+        # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
+        plt.show()
     
     ############# HELP_FUNCTIONS ###############
-    def line_check(self, time_of_line: int) -> list["Operation"]:
+    def line_check(self, time_of_line: int) -> list[int]:
         oper_on_line = []
         for oper_idx in range(len(self.schedule[0])):
             oper_info = [self.schedule[0][oper_idx],
@@ -324,12 +424,15 @@ class Environment:
     def find_int_in_string(self, string):
         return [int(match) for match in re.findall(r'\d+', string)]
 
-
 ############# TESTING ###############
 if (__name__ == "__main__"):
     batch_size = 2
     batch_data = Batch_Data(batch_size=batch_size)
     batched_data = batch_data.get_batch()
     env = Environment(batched_data)
-    test1, test2 = env.unlock_order(1, [0,50])
-    print(type(env.schedule))
+    time_interval = [0,10000]
+    test1, test2 = env.unlock_order(1, time_interval)
+    print(test1)
+    print(test2)
+    ilp_dict = env.to_ilp(test1,test2,time_interval)
+    env.run_ilp(ilp_dict=ilp_dict)
