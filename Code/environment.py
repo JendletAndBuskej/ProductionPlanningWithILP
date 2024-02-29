@@ -20,7 +20,7 @@ class Environment:
         self.time = []
         self.time_step_size = None
         self.schedule = self.initial_schedule()
-        self.precedence = self.initialize_precedence()
+        #self.precedence = self.initialize_precedence()
         self.time = []
         self.max_oper = 1
         
@@ -129,10 +129,8 @@ class Environment:
         operation_list = self.schedule[1,:]
         for iOp,operation in enumerate(operation_list):
             precedence_operation = operation.parent
-            precedence_index = operation_list.index(precedence_operation)
+            precedence_index = np.where(operation_list == precedence_operation)
             precedence[iOp,precedence_index] = 1
-            
-        
         return precedence
     
     def initial_schedule(self) -> np.ndarray:
@@ -167,6 +165,7 @@ class Environment:
                 min_time, schedule, schedule_2d = find_space(operation, min_time,
                                                             schedule, schedule_2d)
         self.time_step_size = max_exec_time
+        self.time_line = self.time_step_size*np.arange(schedule_2d.shape[1])
         schedule = np.array(schedule)
         return (schedule)
     
@@ -276,7 +275,7 @@ class Environment:
             exec_time = init_dict(len(unlocked_operations_indices))
             for iUO, unlocked_operation_index in enumerate(unlocked_operations_indices):
                 unlocked_operation = self.schedule[1,unlocked_operation_index]
-                exec_time[iUO+1] = unlocked_operation.execution_time
+                exec_time[iUO+1] = math.ceil(unlocked_operation.execution_time/self.time_step_size)
                 for machine_id in unlocked_operation.valid_machine_ids:
                     valid_machines[(iUO+1,machine_id)] = 1
             return (valid_machines, exec_time)
@@ -288,14 +287,14 @@ class Environment:
             for iLO, locked_operation_index in enumerate(locked_operations_indices):
                 locked_operation = self.schedule[:,locked_operation_index]
                 locked_operation_machine[iLO+1] = locked_operation[0]
-                locked_operation_exec_time[iLO+1] = locked_operation[1].execution_time
-                locked_operation_start_time[iLO+1] = locked_operation[2]
+                exec_time = math.ceil(locked_operation[1].execution_time/self.time_step_size)
+                locked_operation_exec_time[iLO+1] = exec_time
+                locked_operation_start_time[iLO+1] = locked_operation[2] + 1 
             return (locked_operation_machine, locked_operation_exec_time, locked_operation_start_time)
         
         def map_unlocked_operations():
             self.mapping_unlocked_operations.clear()
             self.mapping_unlocked_operations = unlocked_operations_indices
-            print(self.mapping_unlocked_operations)
         
         def get_precedence():
             pass
@@ -306,7 +305,7 @@ class Environment:
         num_locked_operations = { None: len(locked_operations_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        precedence = get_precedence()
+        #precedence = get_precedence()
         locked_oper_machine, locked_oper_exec_time, locked_oper_start_time = get_locked_operations_info()
         ilp_input = {
             None: {
@@ -322,6 +321,9 @@ class Environment:
                 "locked_oper_start_time" : locked_oper_start_time
             }
         }
+        # with open(os.path.dirname(os.path.abspath(__file__))+"/Test_ilp.json", 'w') as json_file:
+            # json.dump(ilp_input, json_file, indent=4)
+        print(ilp_input)
         return (ilp_input)
 
     # Don't know the class of the solution atm
@@ -343,7 +345,8 @@ class Environment:
             ilp_solution (UNKNOWN): the solved instance of the ilp
         """
         def instance_2_numpy(
-                instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                # instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                instance_data, 
                 shape_array: np.ndarray | list = [] 
             ) -> float | np.ndarray:
             """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
@@ -371,16 +374,6 @@ class Environment:
                         for k in range(shape_array[2]):
                             solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
             return (solution_matrix)
-        
-        def update_operation(operation_index: int, ilp_solution: np.ndarray):
-            for operation_plane in ilp_solution[:,operation_index,:]:
-                machine, start_time = np.where(operation_plane == 1)
-                print("\n##### PRINT FROM 'update_operation' #####")
-                print("Machine: ",machine)
-                print("Start Time: ",start_time)
-                print("#########################################\n")
-                self.schedule[0,operation_index] = machine
-                self.schedule[2,operation_index] = start_time
             
         num_machines = len(self.machines)
         num_unlocked_oper = instance_2_numpy(ilp_solution.num_operations)
@@ -388,10 +381,13 @@ class Environment:
         solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
         for operation in range(num_unlocked_oper):
-            update_operation(operation, ilp_solution_np)
+            machine, start_time = np.where(ilp_solution_np[:,operation,:] == 1)
+            self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
+            self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0]
 
     ### MISC ###
-    def plot(self, t_interval: list[int]) -> None:
+    # def plot(self, t_interval: list[int]) -> None:
+    def plot(self) -> None:
         # set t_interval default value to be the complete scheme
         fig, ax = plt.subplots()
         for operation_index in range(self.schedule.shape[1]):
@@ -399,13 +395,15 @@ class Environment:
             operation = self.schedule[1,operation_index]
             start_time = self.schedule[2,operation_index]
             exec_time = operation.execution_time
-            plt.barh(y=machine_id, width=exec_time, left=start_time)#, color=team_colors[row['team']], alpha=0.4)
+            #plt.barh(y=machine_id, width=exec_time, left=start_time*self.time_step_size, alpha=0.4)#, color=team_colors[row['team']], alpha=0.4)
+            plt.barh(y=machine_id, width=self.time_step_size, left=start_time*self.time_step_size, alpha=0.4)#, color=team_colors[row['team']], alpha=0.4)
         plt.title('Project Management Schedule of Project X', fontsize=15)
         plt.gca().invert_yaxis()
-        plt.xlim(t_interval)
+        ax.set_xticks(self.time_line)
         ax.xaxis.grid(True, alpha=0.5)
         # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
         plt.show()
+        plt.close()
     
     ############# HELP_FUNCTIONS ###############
     def line_check(self, time_of_line: int) -> list[int]:
@@ -426,13 +424,18 @@ class Environment:
 
 ############# TESTING ###############
 if (__name__ == "__main__"):
-    batch_size = 2
-    batch_data = Batch_Data(batch_size=batch_size)
-    batched_data = batch_data.get_batch()
+    num_orders = 15
+    batched_orders = Batch_Data(batch_size=num_orders)
+    batched_data = batched_orders.get_batch()
+    #with open(os.path.dirname(os.path.abspath(__file__))+"/Test.json", 'w') as json_file:
+        # json.dump(batched_data, json_file, indent=4)
     env = Environment(batched_data)
-    time_interval = [0,10000]
-    test1, test2 = env.unlock_order(1, time_interval)
-    print(test1)
-    print(test2)
-    ilp_dict = env.to_ilp(test1,test2,time_interval)
-    env.run_ilp(ilp_dict=ilp_dict)
+    time_interval = [1,100]
+    env.plot()
+    num_runs = 4
+    for iRun in range(num_runs):
+        unlocked_operations, locked_operations = env.unlock_order(1, time_interval)
+        ilp_dict = env.to_ilp(unlocked_operations,locked_operations,time_interval)
+        ilp_solution = env.run_ilp(ilp_dict=ilp_dict)
+        env.update_from_ilp_solution(ilp_solution)
+    env.plot()
