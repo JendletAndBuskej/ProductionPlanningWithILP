@@ -142,6 +142,7 @@ class Environment:
                 min_time, schedule, schedule_2d = find_space(operation, min_time,
                                                             schedule, schedule_2d)
         self.time_step_size = max_exec_time
+        schedule = np.array(schedule)
         return (schedule)
     
     ### SCHEDULE_UNLOCKING ###
@@ -212,8 +213,6 @@ class Environment:
                     if (i == len(object_idx)):
                         locked_oper += [oper_idx]
         locked_oper += self.line_check(t_interval[0])
-        print('t_intervall[0]')
-        print(self.line_check(t_interval[0]))
         return(unlocked_oper, locked_oper)
 
     ### TIMELINE_MANAGEMENT ###
@@ -333,9 +332,4 @@ if (__name__ == "__main__"):
     batched_data = batch_data.get_batch()
     env = Environment(batched_data)
     test1, test2 = env.unlock_order(1, [0,50])
-    print('unlocked')
-    print(test1)
-    print('locked')
-    print(test2)
-    print(env.time_step_size)
-    
+    print(type(env.schedule))
