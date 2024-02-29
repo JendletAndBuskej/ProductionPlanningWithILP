@@ -1,4 +1,5 @@
 ############## IMPORT ################
+from platform import machine
 import numpy as np
 import matplotlib.pyplot as plt
 import os, json, re, math
@@ -106,7 +107,7 @@ class Environment:
                 operation.set_order(ord)
                 #operation.order.print_info()
             orders_list += [ord]
-            ord.print_info()
+            #ord.print_info()
         return (orders_list)
     
     def initial_schedule(self) -> np.ndarray:
@@ -154,34 +155,62 @@ class Environment:
             t_interval (_type_): _description_
             order_idx (list, optional): _description_. Defaults to [0].
         """
+        statement = "order"
+        unlocked_oper, locked_oper = self.unlock(num_orders, t_interval, 
+                                                 statement, order_idx)
+        return (unlocked_oper, locked_oper)
+
+    def unlock_machine(self, 
+            num_machines: int,
+            t_interval: list[int],
+            machine_idx: list[int] =[0]
+        ) -> tuple[list["Operation"], list["Operation"]]:
+        statement = "machine"
+        unlocked_oper, locked_oper = self.unlock(num_machines, t_interval, 
+                                                 statement, machine_idx)
+        return (unlocked_oper, locked_oper)
+    
+    def unlock(self, 
+            num_objects: int,
+            t_interval: list[int],
+            check_statement: str,
+            object_idx: list[int] =[0]
+        ) -> tuple[list["Operation"], list["Operation"]]:
+        if (check_statement == "order"):
+            object_amount = len(self.orders)
+        if (check_statement == "machine"):
+            object_amount = len(self.machines)
         locked_oper = []
         unlocked_oper = []
-        if (len(order_idx) == 1 and order_idx[0] == 0):
-            order_idx = np.ceil((len(self.orders) - 1)*np.random.rand(num_orders))
+        if (len(object_idx) == 1 and object_idx[0] == 0):
+            object_idx = np.ceil((object_amount - 1)*np.random.rand(num_objects))
         for oper_idx in range(len(self.schedule[0])):
             oper_info = [self.schedule[0][oper_idx],
                      self.schedule[1][oper_idx],
                      self.schedule[2][oper_idx]]
-            if (oper_info[2] > t_interval[0] and oper_info[2] < t_interval[1] - self.max_oper):
+            if (oper_info[2] > t_interval[0] and oper_info[2] < t_interval[1]):
                 i = 0
-                for idx in order_idx:
+                for idx in object_idx:
                     i += 1
-                    if (oper_info[1].order == self.orders[idx]):
+                    idx = int(idx)
+                    exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
+                    check1 = True
+                    check2 = oper_info[2] + exe_time <= t_interval[1]
+
+                    if (check_statement == "order"):
+                        check1 = (oper_info[1].order == self.orders[idx])
+                    if (check_statement == "machine"):
+                        check1 = (oper_info[0] == idx)                    
+
+                    if (check1 and check2):
                         unlocked_oper += [oper_info[1]]
                         break
-                    if (i == len(order_idx)):
+                    if (i == len(object_idx)):
                         locked_oper += [oper_info[1]]
-            elif (oper_info[2] > t_interval[1] -self.max_oper and oper_info[2] < t_interval[1]):
-                exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
-                if (oper_info[2] + exe_time <= t_interval[1]):
-                    unlocked_oper += [oper_info[1]]
         locked_oper += self.line_check(t_interval[0])
         locked_oper += self.line_check(t_interval[1])
         return (unlocked_oper, locked_oper)
 
-    def unlock_machine(self, amount, t_interval, machine_id=[0]):
-        pass
-    
     ### TIMELINE_MANAGEMENT ###
     def divide_timeline(self) -> None:
         pass
@@ -254,10 +283,10 @@ class Environment:
         }
         return (ilp_input)
 
-    def run_ilp(self, ilp_dict: dict) -> pyo.AbstractModel:
+    def run_ilp(self, ilp_dict: dict): #-> pyo.AbstractModel:
         """Runs the ILP, from the ILP file. 
         """
-        
+        pass
         
     def update_from_ilp_instance(self, ilp_output) -> None:
         """_summary_
@@ -300,4 +329,5 @@ if (__name__ == "__main__"):
     batch_data = Batch_Data(batch_size=batch_size)
     batched_data = batch_data.get_batch()
     env = Environment(batched_data)
-    test1, test2 = env.unlock_order(1, [0,10])
+    test1, test2 = env.unlock_machine(30, [0,10000])
+    print(test1)
