@@ -2,7 +2,7 @@
 from platform import machine
 import numpy as np
 import matplotlib.pyplot as plt
-import os, json, re, math
+import os, json, re, math, random
 from classes import Operation, Order
 from Data_Converter.batch_data import Batch_Data
 from ilp import create_and_run_ilp
@@ -18,9 +18,9 @@ class Environment:
         self.operations_data = self.initialize_operations_data()
         self.orders = self.initialize_orders()
         self.time = []
+        self.time_step_size = None
         self.schedule = self.initial_schedule()
         self.max_oper = 1
-        self.time_step_size = 50 # this is just before we fix this
         
         self.last_sent_indices = []  #list of machines, list of operations, time_interval 
     
@@ -131,13 +131,17 @@ class Environment:
             schedule_2d = np.append(schedule_2d, np.zeros([schedule_2d.shape[0],1]), axis=1)
             return (find_space(operation, min_time, schedule, schedule_2d))
 
+        max_exec_time = 0
         schedule = [[],[],[]]
         schedule_2d = np.zeros([len(self.machines), 1])
         for order in self.orders:
             min_time = 0
             for operation in order.get_operations():
+                if (operation.execution_time > max_exec_time):
+                    max_exec_time = operation.execution_time
                 min_time, schedule, schedule_2d = find_space(operation, min_time,
                                                             schedule, schedule_2d)
+        self.time_step_size = max_exec_time
         return (schedule)
     
     ### SCHEDULE_UNLOCKING ###
@@ -176,6 +180,10 @@ class Environment:
             check_statement: str,
             object_idx: list[int] =[0]
         ) -> tuple[list["Operation"], list["Operation"]]:
+        valid_statements = ["order", "machine"]
+        if not check_statement in valid_statements:
+            print("error not a valid unlock statement")
+            return ()
         if (check_statement == "order"):
             object_amount = len(self.orders)
         if (check_statement == "machine"):
@@ -183,36 +191,34 @@ class Environment:
         locked_oper = []
         unlocked_oper = []
         if (len(object_idx) == 1 and object_idx[0] == 0):
-            object_idx = np.ceil((object_amount - 1)*np.random.rand(num_objects))
+            object_idx = random.sample(range(object_amount), num_objects)
         for oper_idx in range(len(self.schedule[0])):
             oper_info = [self.schedule[0][oper_idx],
-                     self.schedule[1][oper_idx],
-                     self.schedule[2][oper_idx]]
-            if (oper_info[2] > t_interval[0] and oper_info[2] < t_interval[1]):
+                        self.schedule[1][oper_idx],
+                        self.schedule[2][oper_idx]]
+            if (oper_info[2] >= t_interval[0] and oper_info[2] < t_interval[1]):
+                exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
+                check2 = oper_info[2] + exe_time <= t_interval[1]
                 i = 0
                 for idx in object_idx:
                     i += 1
                     idx = int(idx)
-                    exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
-                    check1 = True
-                    check2 = oper_info[2] + exe_time <= t_interval[1]
-
-                    if (check_statement == "order"):
-                        check1 = (oper_info[1].order == self.orders[idx])
+                    check1 = (oper_info[1].order == self.orders[idx])
                     if (check_statement == "machine"):
-                        check1 = (oper_info[0] == idx)                    
-
+                        check1 = (oper_info[0] == idx)
                     if (check1 and check2):
-                        unlocked_oper += [oper_info[1]]
+                        unlocked_oper += [oper_idx]
                         break
                     if (i == len(object_idx)):
-                        locked_oper += [oper_info[1]]
+                        locked_oper += [oper_idx]
         locked_oper += self.line_check(t_interval[0])
-        locked_oper += self.line_check(t_interval[1])
-        return (unlocked_oper, locked_oper)
+        print('t_intervall[0]')
+        print(self.line_check(t_interval[0]))
+        return(unlocked_oper, locked_oper)
 
     ### TIMELINE_MANAGEMENT ###
-    def divide_timeline(self) -> None:
+    def divide_timeline(self, num_divisions = 1) -> None:
+        self.time_step_size = self.time_step_size/np.exp(2)
         pass
     
     ### ILP_HANDLING ###    
@@ -305,18 +311,15 @@ class Environment:
     ############# HELP_FUNCTIONS ###############
     def line_check(self, time_of_line: int) -> list["Operation"]:
         oper_on_line = []
-        range_set = [time_of_line - self.max_oper, time_of_line]
-        if (time_of_line - self.max_oper < 0):
-            range_set = [0, time_of_line]
         for oper_idx in range(len(self.schedule[0])):
             oper_info = [self.schedule[0][oper_idx],
                      self.schedule[1][oper_idx],
                      self.schedule[2][oper_idx]]
-            check1 = oper_info[2] > range_set[0] and oper_info[2] > range_set[1]
+            check1 = oper_info[2] < time_of_line
             exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
-            check2 = oper_info[2] + exe_time > time_of_line
+            check2 = oper_info[2] + exe_time >= time_of_line
             if (check1 and check2):
-                oper_on_line += [oper_info[1]]
+                oper_on_line += [oper_idx]
         return (oper_on_line)
     
     def find_int_in_string(self, string):
@@ -329,5 +332,10 @@ if (__name__ == "__main__"):
     batch_data = Batch_Data(batch_size=batch_size)
     batched_data = batch_data.get_batch()
     env = Environment(batched_data)
-    test1, test2 = env.unlock_machine(30, [0,10000])
+    test1, test2 = env.unlock_order(1, [0,50])
+    print('unlocked')
     print(test1)
+    print('locked')
+    print(test2)
+    print(env.time_step_size)
+    
