@@ -74,7 +74,7 @@ def create_and_run_ilp(ilp_data : dict | str):
     instance = model.create_instance(ilp_data)
     opt = SolverFactory("glpk")
     result = opt.solve(instance)
-    return instance
+    return(instance)
 
 
 if (__name__ == "__main__"):
@@ -145,7 +145,7 @@ if (__name__ == "__main__"):
                 for j in range(shape_array[1]):
                     for k in range(shape_array[2]):
                         solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
-        return(solution_matrix)
+        return (solution_matrix)
 
     instance_num_machines = instance_2_numpy(instance.num_machines)
     instance_num_operations = instance_2_numpy(instance.num_operations)
