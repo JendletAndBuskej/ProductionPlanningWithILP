@@ -8,6 +8,7 @@ from Data_Converter.batch_data import Batch_Data
 from ilp import create_and_run_ilp
 import pyomo as pyo
 import pandas as pd
+from pyomo.opt import SolverFactory
 
 ############# ENVIRONMENT_CLASS_##############
 class Environment:
@@ -23,6 +24,9 @@ class Environment:
         self.precedence = self.initialize_precedence()
         self.time = []
         self.max_oper = 1
+        print("self.machines")
+        for i in self.schedule[1][:]:
+            print(i.valid_machine_ids)
         
         # list of operations that are sent into the ilp 
         self.mapping_unlocked_operations = []  # [ActualIndex]   
@@ -36,10 +40,11 @@ class Environment:
             data_path_machine_types (str): Path to the data file containing machine data
         """
         txt_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=1, dtype=int)
+        machine_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=0, dtype=str)
         machine_id = 0
         machines = {}
         for iM, num_machine_type in enumerate(txt_to_np):
-            machine_type = "machine_type_"+str(iM)
+            machine_type = machine_to_np[iM]
             for machine in range(num_machine_type):
                 machines[machine_id] = machine_type
                 machine_id += 1
@@ -57,9 +62,9 @@ class Environment:
         def get_valid_machine_ids(machine_types: list[str]) -> list[int]:
             valid_machine_ids = []
             for m_type in machine_types:
-                m_type_as_int = self.find_int_in_string(m_type)
+                m_type_as_int = self.find_int_in_string(m_type)[0]
                 for machine_id, machine_type in self.machines.items():
-                    machine_type_as_int = self.find_int_in_string(machine_type)
+                    machine_type_as_int = self.find_int_in_string(machine_type)[0]
                     if machine_type_as_int == m_type_as_int:
                         valid_machine_ids += [machine_id]
             return (valid_machine_ids)
@@ -113,8 +118,6 @@ class Environment:
             orders_list += [ord]
             #ord.print_info()
         return (orders_list)
-    
-    list_valid_statements = ["S1", "S2"]
     
     def initialize_precedence(self) -> np.ndarray:
         """Instanciates and returns a numpy matrix of the precedence. Dim: [num_oper x num_oper].
@@ -352,7 +355,7 @@ class Environment:
                 oper_machine = oper[0] + 1
                 # unsure about the 
                 oper_start_time = oper[2] + 1
-                opers[oper_machine, iOper+1, oper_start_time] = 1
+                opers[(oper_machine, iOper+1, oper_start_time)] = 1
                 exec_time = math.ceil(oper[1].execution_time/self.time_step_size)
                 exec_times[iOper+1] = exec_time
             return (opers, exec_times)
@@ -520,21 +523,74 @@ class Environment:
         return [int(match) for match in re.findall(r'\d+', string)]
 
 ############# TESTING ###############
+
+def instance_2_numpy(instance_data, shape_array= []):
+    """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
+    The return will be a numpy array/matrix but just the value in the case of a single value (dimension of 0).
+    In the case of a single value the shape_array should be an empty array "[]".
+
+    Args:
+        instance_data (pyomo.Var, pyomo.Param or pyomo.set): This is your input data ex. "instance.num_machines" and should always start with "instance.".
+        shape_array (Array or np.array): This is the dimensionality of your input data ex. "[3,2,4]". What you would expect from "np.shape".
+    """
+    df = pd.DataFrame.from_dict(instance_data.extract_values(), orient='index')
+    solution_flat_matrix = df.to_numpy()
+    if len(shape_array) == 0:
+        return(solution_flat_matrix[0,0])
+    if len(shape_array) == 1:
+        return(solution_flat_matrix[:,0])
+    solution_matrix = np.empty(shape_array)
+    if len(shape_array) == 2:
+        for i in range(shape_array[0]):
+            for j in range(shape_array[1]):
+                solution_matrix[i,j] = solution_flat_matrix[shape_array[1]*i + j,0]
+    if len(shape_array) == 3:
+        for i in range(shape_array[0]):
+            for j in range(shape_array[1]):
+                for k in range(shape_array[2]):
+                    solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
+    return (solution_matrix)
+
 if (__name__ == "__main__"):
     num_orders = 2
     batched_orders = Batch_Data(batch_size=num_orders)
     batched_data = batched_orders.get_batch()
     with open(os.path.dirname(os.path.abspath(__file__))+"/Test.json", 'w') as json_file:
         json.dump(batched_data, json_file, indent=4)
-    env = Environment(batched_data)
-    time_interval = [1,100]
+    with open(os.path.dirname(os.path.abspath(__file__))+"/test1337.json", 'r') as f:
+        test1337 = json.load(f)
+    env = Environment(test1337)
+    time_interval = [0,6]
     # env.plot(True)
-    num_runs = 4
+    num_runs = 1
     for iRun in range(num_runs):
-        print('run nr:')
-        print(iRun)
-        unlocked_operations, locked_operations = env.unlock_order(1, time_interval)
+        unlocked_operations, locked_operations = env.unlock_order(2, time_interval)
         ilp_dict = env.to_ilp(unlocked_operations,locked_operations,time_interval)
-        ilp_solution = env.run_ilp(ilp_dict=ilp_dict)
-        env.update_from_ilp_solution(ilp_solution)
-    env.plot()
+        instance = env.run_ilp(ilp_dict=ilp_dict)
+    #     df = pd.DataFrame.from_dict(ilp_solution.assigned.extract_values(), orient='index')
+    #     print(df.to_numpy())
+    #     env.update_from_ilp_solution(ilp_solution)
+    # env.plot()
+
+    instance_num_machines = instance_2_numpy(instance.num_machines)
+    print(instance_num_machines)
+    instance_num_opers = instance_2_numpy(instance.num_opers)
+    instance_num_time_indices = instance_2_numpy(instance.num_time_indices)
+    instance_operation_time = instance_2_numpy(instance.exec_time, [instance_num_opers])
+    solution_shape = [instance_num_machines, instance_num_opers, instance_num_time_indices]
+    instance_solution_matrix = instance_2_numpy(instance.assigned, solution_shape)
+
+    ########### PLOT ############
+    def plot_gantt(gantt_matrix, operations_times): #exec_time?
+        fig, ax = plt.subplots()
+        gantt_dims = gantt_matrix.shape
+        for operation in range(gantt_dims[1]):
+            gantt_of_operation = gantt_matrix[:,operation,:]
+            machine, start_of_operation = np.where(gantt_of_operation == 1)
+            plt.barh(y=machine, width=operations_times[operation], left= start_of_operation)#, color=team_colors[row['team']], alpha=0.4)
+        plt.title('Project Management Schedule of Project X', fontsize=15)
+        plt.gca().invert_yaxis()
+        ax.xaxis.grid(True, alpha=0.5)
+        # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
+        plt.show()
+    plot_gantt(instance_solution_matrix, instance_operation_time)

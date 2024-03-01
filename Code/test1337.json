@@ -1,0 +1,46 @@
+{
+    "FG_1": {
+        "pred_list": ["PP_1"],
+        "linetype": [
+            "line_01"
+        ],
+        "startup_time": 0,
+        "operation_time": 1,
+        "num_operator": 14.0,
+        "parent": "",
+        "tree": "T1"
+    },
+    "FG_2": {
+        "pred_list": ["PP_2"],
+        "linetype": [
+            "line_01"
+        ],
+        "startup_time": 0,
+        "operation_time": 1,
+        "num_operator": 14.0,
+        "parent": "",
+        "tree": "T2"
+    },
+    "PP_1": {
+        "pred_list": [],
+        "linetype": [
+            "line_01"
+        ],
+        "startup_time": 0,
+        "operation_time": 2,
+        "num_operator": 14.0,
+        "parent": "FG_1",
+        "tree": "T1"
+    },
+    "PP_2": {
+        "pred_list": [],
+        "linetype": [
+            "line_01"
+        ],
+        "startup_time": 0,
+        "operation_time": 2,
+        "num_operator": 14.0,
+        "parent": "FG_2",
+        "tree": "T2"
+    }
+}

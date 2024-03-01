@@ -1,5 +1,84 @@
 {
-    "FG_2693": {
+    "FG_2523": {
+        "pred_list": [
+            "PP_18700",
+            "PP_18702",
+            "PP_18705",
+            "PP_18707"
+        ],
+        "linetype": [
+            "line_04",
+            "line_09",
+            "line_02"
+        ],
+        "startup_time": 694.26,
+        "operation_time": 34895.7,
+        "num_operator": 15.0,
+        "parent": "",
+        "tree": "T1694"
+    },
+    "FG_2348": {
+        "pred_list": [
+            "PP_17093",
+            "PP_17095",
+            "PP_17097",
+            "PP_17099"
+        ],
+        "linetype": [
+            "line_04",
+            "line_09",
+            "line_02"
+        ],
+        "startup_time": 694.26,
+        "operation_time": 16390.452435,
+        "num_operator": 13.0,
+        "parent": "",
+        "tree": "T1499"
+    },
+    "PP_18700": {
+        "pred_list": [
+            "PP_18701"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 36733.5402,
+        "num_operator": 2.5,
+        "parent": "FG_2523",
+        "tree": "T1694"
+    },
+    "PP_18702": {
+        "pred_list": [],
+        "linetype": [
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 41060.607,
+        "num_operator": 5.5,
+        "parent": "FG_2523",
+        "tree": "T1694"
+    },
+    "PP_18705": {
+        "pred_list": [
+            "PP_18706"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 41060.607,
+        "num_operator": 2.5,
+        "parent": "FG_2523",
+        "tree": "T1694"
+    },
+    "PP_18707": {
         "pred_list": [],
         "linetype": [
             "line_01",
@@ -9,79 +88,126 @@
             "line_07"
         ],
         "startup_time": 365.4,
-        "operation_time": 197316.0,
-        "num_operator": 4.0,
-        "parent": "",
-        "tree": "T1882"
-    },
-    "FG_2682": {
-        "pred_list": [
-            "PP_20057",
-            "PP_20059"
-        ],
-        "linetype": [
-            "line_04",
-            "line_10",
-            "line_09"
-        ],
-        "startup_time": 694.26,
-        "operation_time": 25948.58868,
-        "num_operator": 11.0,
-        "parent": "",
-        "tree": "T1870"
-    },
-    "PP_20057": {
-        "pred_list": [
-            "PP_20058"
-        ],
-        "linetype": [
-            "line_05",
-            "line_08",
-            "line_06",
-            "line_07"
-        ],
-        "startup_time": 475.02,
-        "operation_time": 22243.87116,
-        "num_operator": 3.5,
-        "parent": "FG_2682",
-        "tree": "T1870"
-    },
-    "PP_20059": {
-        "pred_list": [
-            "PP_20060"
-        ],
-        "linetype": [
-            "line_05",
-            "line_08",
-            "line_06",
-            "line_07"
-        ],
-        "startup_time": 475.02,
-        "operation_time": 24578.77716,
+        "operation_time": 39315.822,
         "num_operator": 2.5,
-        "parent": "FG_2682",
-        "tree": "T1870"
+        "parent": "FG_2523",
+        "tree": "T1694"
     },
-    "PP_20058": {
+    "PP_17093": {
+        "pred_list": [
+            "PP_17094"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 15525.209595,
+        "num_operator": 2.5,
+        "parent": "FG_2348",
+        "tree": "T1499"
+    },
+    "PP_17095": {
+        "pred_list": [
+            "PP_17096"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 15525.209595,
+        "num_operator": 3.5,
+        "parent": "FG_2348",
+        "tree": "T1499"
+    },
+    "PP_17097": {
+        "pred_list": [
+            "PP_17098"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 15525.209595,
+        "num_operator": 2.5,
+        "parent": "FG_2348",
+        "tree": "T1499"
+    },
+    "PP_17099": {
+        "pred_list": [],
+        "linetype": [
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 15525.209595,
+        "num_operator": 2.5,
+        "parent": "FG_2348",
+        "tree": "T1499"
+    },
+    "PP_18701": {
         "pred_list": [],
         "linetype": [
             "line_11"
         ],
         "startup_time": 365.4,
-        "operation_time": 22243.87116,
+        "operation_time": 33243.9702,
         "num_operator": 1.5,
-        "parent": "PP_20057",
-        "tree": "T1870"
+        "parent": "PP_18700",
+        "tree": "T1694"
     },
-    "PP_20060": {
+    "PP_18706": {
         "pred_list": [],
         "linetype": [
             "line_11"
         ],
         "startup_time": 365.4,
-        "operation_time": 22243.87116,
+        "operation_time": 33243.9702,
         "num_operator": 1.5,
-        "parent": "PP_20059",
-        "tree": "T1870"
+        "parent": "PP_18705",
+        "tree": "T1694"
+    },
+    "PP_17094": {
+        "pred_list": [],
+        "linetype": [
+            "line_12",
+            "line_11"
+        ],
+        "startup_time": 292.32,
+        "operation_time": 14050.363845,
+        "num_operator": 1.0,
+        "parent": "PP_17093",
+        "tree": "T1499"
+    },
+    "PP_17096": {
+        "pred_list": [],
+        "linetype": [
+            "line_11"
+        ],
+        "startup_time": 365.4,
+        "operation_time": 14050.363845,
+        "num_operator": 1.5,
+        "parent": "PP_17095",
+        "tree": "T1499"
+    },
+    "PP_17098": {
+        "pred_list": [],
+        "linetype": [
+            "line_11"
+        ],
+        "startup_time": 365.4,
+        "operation_time": 14050.363845,
+        "num_operator": 1.5,
+        "parent": "PP_17097",
+        "tree": "T1499"
     }
 }

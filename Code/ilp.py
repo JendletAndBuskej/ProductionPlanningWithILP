@@ -23,8 +23,7 @@ def create_and_run_ilp(ilp_data : dict | str):
     model.precedence = pyo.Param(model.all_opers, model.all_opers)
     model.exec_time = pyo.Param(model.opers)
     model.locked_exec_time = pyo.Param(model.locked_opers)
-    model.locked_schedule = pyo.Param(model.machines, model.locked_opers, 
-                                      model.time_indices, domain=pyo.Binary)
+    model.locked_schedule = pyo.Param(model.machines, model.locked_opers, model.time_indices)
     model.assigned = pyo.Var(model.machines, model.opers, model.time_indices, domain=pyo.Binary)
     big_m = 10000
 
@@ -50,10 +49,10 @@ def create_and_run_ilp(ilp_data : dict | str):
         start_interval = min(time_index, model.time_indices[-2])
         end_interval = min(model.exec_time[oper] + time_index, model.time_indices[-1])
         time_interval = range(start_interval, end_interval) 
-        assigned = model.assigned[machine, oper, time_index]      
+        locked_schedule = model.assigned[machine, oper, time_index]      
         return sum(model.assigned[machine, o, t] 
                    for o in model.opers 
-                   for t in time_interval) <= 1 + big_m*(1-assigned)
+                   for t in time_interval) <= 1 + big_m*(1-locked_schedule)
 
     def locked_overlap_const(model, machine, locked_oper, time_index):
         if (time_index == model.time_indices[-1]):
@@ -82,8 +81,8 @@ def create_and_run_ilp(ilp_data : dict | str):
     model.no_duplicate = pyo.Constraint(model.opers, rule=duplicate_const)
     model.machine_const = pyo.Constraint(model.machines, model.opers, rule=machine_const)
     model.overlap_const = pyo.Constraint(model.machines, model.opers, model.time_indices, rule=overlap_const)
-    # model.locked_overlap_const = pyo.Constraint(model.machines, model.locked_opers, model.time_indices, rule=locked_overlap_const)
-    # model.precedence_const = pyo.Constraint(model.opers, model.opers, rule=precedence_const)
+    model.locked_overlap_const = pyo.Constraint(model.machines, model.locked_opers, model.time_indices, rule=locked_overlap_const)
+    #model.precedence_const = pyo.Constraint(model.opers, model.opers, rule=precedence_const)
     
     ############# SOLVE ############
     instance = model.create_instance(ilp_data)
@@ -100,39 +99,52 @@ if (__name__ == "__main__"):
             "num_machines" : {
                 None: 2
             },
-            "num_oper" : {
-                None: 2
+            "num_opers" : {
+                None: 3
             },
             "num_locked_opers" : {
                 None: 1
             },
             "num_time_indices" : {
-                None: 4
+                None: 5
             },
             "valid_machines" : {
                 (1,1): 1,
-                (1,2): 0,
+                (1,2): 1,
                 (2,1): 1,
-                (2,2): 1
+                (2,2): 1,
+                (3,1): 1,
+                (3,2): 1,
             },
             "exec_time" : {
                 1: 1,
-                2: 2
+                2: 2,
+                3: 1,
             },
-            "locked_oper_machine" : {
-                1: 1
+            "locked_schedule" : {
+                (1,1,1): 1,
+                (1,1,2): 0,
+                (1,1,3): 0,
+                (1,1,4): 0,
+                (1,1,5): 0,
+                (2,1,1): 0,
+                (2,1,2): 0,
+                (2,1,3): 0,
+                (2,1,4): 0,
+                (2,1,5): 0
             },
-            "locked_oper_start_time" : {
-                1: 1
-            },
-            "locked_oper_exec_time" : {
+            "locked_exec_time" : {
                 1: 2
             },
             "precedence" : {
-                (1,1): 0,
+                (1,1): 1,
                 (1,2): 1,
+                (1,3): 1,
                 (2,1): 0,
-                (2,2): 0
+                (2,2): 1,
+                (2,3): 0,
+                (3,1): 0,
+                (3,2): 1,
             }
 
         }
