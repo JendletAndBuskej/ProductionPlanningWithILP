@@ -1,0 +1,87 @@
+{
+    "FG_2693": {
+        "pred_list": [],
+        "linetype": [
+            "line_01",
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 365.4,
+        "operation_time": 197316.0,
+        "num_operator": 4.0,
+        "parent": "",
+        "tree": "T1882"
+    },
+    "FG_2682": {
+        "pred_list": [
+            "PP_20057",
+            "PP_20059"
+        ],
+        "linetype": [
+            "line_04",
+            "line_10",
+            "line_09"
+        ],
+        "startup_time": 694.26,
+        "operation_time": 25948.58868,
+        "num_operator": 11.0,
+        "parent": "",
+        "tree": "T1870"
+    },
+    "PP_20057": {
+        "pred_list": [
+            "PP_20058"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 22243.87116,
+        "num_operator": 3.5,
+        "parent": "FG_2682",
+        "tree": "T1870"
+    },
+    "PP_20059": {
+        "pred_list": [
+            "PP_20060"
+        ],
+        "linetype": [
+            "line_05",
+            "line_08",
+            "line_06",
+            "line_07"
+        ],
+        "startup_time": 475.02,
+        "operation_time": 24578.77716,
+        "num_operator": 2.5,
+        "parent": "FG_2682",
+        "tree": "T1870"
+    },
+    "PP_20058": {
+        "pred_list": [],
+        "linetype": [
+            "line_11"
+        ],
+        "startup_time": 365.4,
+        "operation_time": 22243.87116,
+        "num_operator": 1.5,
+        "parent": "PP_20057",
+        "tree": "T1870"
+    },
+    "PP_20060": {
+        "pred_list": [],
+        "linetype": [
+            "line_11"
+        ],
+        "startup_time": 365.4,
+        "operation_time": 22243.87116,
+        "num_operator": 1.5,
+        "parent": "PP_20059",
+        "tree": "T1870"
+    }
+}

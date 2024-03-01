@@ -20,7 +20,7 @@ class Environment:
         self.time = []
         self.time_step_size = None
         self.schedule = self.initial_schedule()
-        #self.precedence = self.initialize_precedence()
+        self.precedence = self.initialize_precedence()
         self.time = []
         self.max_oper = 1
         
@@ -125,7 +125,7 @@ class Environment:
             None
         """
         num_operations = len(self.operations_data)
-        precedence = np.zeros([num_operations, num_operations])
+        precedence = np.zeros([num_operations, num_operations], dtype=int)
         operation_list = self.schedule[1,:]
         for iOp,operation in enumerate(operation_list):
             precedence_operation = operation.parent
@@ -325,7 +325,7 @@ class Environment:
                 unlocked_operation = self.schedule[1,unlocked_operation_index]
                 exec_time[iUO+1] = math.ceil(unlocked_operation.execution_time/self.time_step_size)
                 for machine_id in unlocked_operation.valid_machine_ids:
-                    valid_machines[(iUO+1,machine_id)] = 1
+                    valid_machines[(iUO+1,machine_id+1)] = 1
             return (valid_machines, exec_time)
 
         ## old, yet gold
@@ -362,7 +362,13 @@ class Environment:
             self.mapping_unlocked_operations = unlocked_opers_indices
         
         def get_precedence():
-            pass
+            all_opers_indices = unlocked_opers_indices.copy()
+            all_opers_indices = np.append(all_opers_indices, locked_opers_indices)
+            precedence = init_dict(len(all_opers_indices), len(all_opers_indices))
+            for i,iIdx in enumerate(all_opers_indices):
+                for j,jIdx in enumerate(all_opers_indices):
+                    precedence[(i+1,j+1)] = self.precedence[iIdx,jIdx]
+            return (precedence)
         
         num_machines = { None: len(self.machines)}
         num_operations = { None: len(unlocked_opers_indices)}
@@ -370,22 +376,21 @@ class Environment:
         num_locked_operations = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        precedence = get_precedence()
+        #precedence = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
-                "num_operations" : num_operations,
-                "num_locked_operations" : num_locked_operations,
+                "num_opers" : num_operations,
+                "num_locked_opers" : num_locked_operations,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
-                # "precedence" : precedence,
+                #"precedence" : precedence,
                 "exec_time" : exec_time,
-                "locked_oper_exec_time" : locked_oper_exec_time,
+                "locked_exec_time" : locked_oper_exec_time,
                 "locked_schedule" : locked_schedule
             }
         }
-        print(ilp_input)
         return (ilp_input)
 
     # Don't know the class of the solution atm
@@ -444,7 +449,7 @@ class Environment:
                 self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0]
             
         num_machines = len(self.machines)
-        num_unlocked_oper = instance_2_numpy(ilp_solution.num_operations)
+        num_unlocked_oper = instance_2_numpy(ilp_solution.num_opers)
         num_time_indices = instance_2_numpy(ilp_solution.num_time_indices)
         solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
@@ -516,16 +521,18 @@ class Environment:
 
 ############# TESTING ###############
 if (__name__ == "__main__"):
-    num_orders = 1
+    num_orders = 2
     batched_orders = Batch_Data(batch_size=num_orders)
     batched_data = batched_orders.get_batch()
     with open(os.path.dirname(os.path.abspath(__file__))+"/Test.json", 'w') as json_file:
         json.dump(batched_data, json_file, indent=4)
     env = Environment(batched_data)
     time_interval = [1,100]
-    env.plot(True)
+    # env.plot(True)
     num_runs = 4
     for iRun in range(num_runs):
+        print('run nr:')
+        print(iRun)
         unlocked_operations, locked_operations = env.unlock_order(1, time_interval)
         ilp_dict = env.to_ilp(unlocked_operations,locked_operations,time_interval)
         ilp_solution = env.run_ilp(ilp_dict=ilp_dict)

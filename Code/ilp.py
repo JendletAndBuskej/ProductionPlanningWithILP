@@ -11,20 +11,21 @@ def create_and_run_ilp(ilp_data : dict | str):
     # parameters and variable definition
     model = pyo.AbstractModel()
     model.num_machines = pyo.Param(within=pyo.NonNegativeIntegers)
-    model.num_operations = pyo.Param(within=pyo.NonNegativeIntegers)
-    model.num_locked_operations = pyo.Param(within=pyo.NonNegativeIntegers)
+    model.num_opers = pyo.Param(within=pyo.NonNegativeIntegers)
+    model.num_locked_opers = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
     model.machines = pyo.RangeSet(1, model.num_machines)
-    model.oper = pyo.RangeSet(1, model.num_operations)
-    model.locked_oper = pyo.RangeSet(1, model.num_locked_operations)
+    model.opers = pyo.RangeSet(1, model.num_opers)
+    model.locked_opers = pyo.RangeSet(1, model.num_locked_opers)
+    model.all_opers = pyo.RangeSet(1,model.num_opers+model.num_locked_opers)
     model.time_indices = pyo.RangeSet(1, model.num_time_indices)
-    model.valid_machines = pyo.Param(model.oper, model.machines)
-    model.precedence = pyo.Param(model.oper, model.oper)
-    model.exec_time = pyo.Param(model.oper)
-    model.locked_oper_machine = pyo.Param(model.locked_oper)
-    model.locked_oper_start_time = pyo.Param(model.locked_oper)
-    model.locked_oper_exec_time = pyo.Param(model.locked_oper)
-    model.assigned = pyo.Var(model.machines, model.oper, model.time_indices, domain=pyo.Binary)
+    model.valid_machines = pyo.Param(model.opers, model.machines)
+    model.precedence = pyo.Param(model.all_opers, model.all_opers)
+    model.exec_time = pyo.Param(model.opers)
+    model.locked_exec_time = pyo.Param(model.locked_opers)
+    model.locked_schedule = pyo.Param(model.machines, model.locked_opers, 
+                                      model.time_indices, domain=pyo.Binary)
+    model.assigned = pyo.Var(model.machines, model.opers, model.time_indices, domain=pyo.Binary)
     big_m = 10000
 
 
@@ -32,58 +33,57 @@ def create_and_run_ilp(ilp_data : dict | str):
     def objective(model):
         return sum(t * model.assigned[m, o, t] 
                    for m in model.machines
-                   for o in model.oper
+                   for o in model.opers
                    for t in model.time_indices)  
 
-    def duplicate_const(model, operation):
-        return sum(model.assigned[m,operation,t]
+    def duplicate_const(model, oper):
+        return sum(model.assigned[m,oper,t]
                    for m in model.machines 
                    for t in model.time_indices) == 1
 
-    def machine_const(model, machine, operation):
-        valid_machine = model.valid_machines[operation, machine]
-        return sum(model.assigned[machine,operation,t] 
+    def machine_const(model, machine, oper):
+        valid_machine = model.valid_machines[oper, machine]
+        return sum(model.assigned[machine,oper,t] 
                 for t in model.time_indices) <= valid_machine
 
-    def overlap_const(model, machine, operation, time_index):
+    def overlap_const(model, machine, oper, time_index):
         start_interval = min(time_index, model.time_indices[-2])
-        end_interval = min(model.exec_time[operation] + time_index, model.time_indices[-1])
+        end_interval = min(model.exec_time[oper] + time_index, model.time_indices[-1])
         time_interval = range(start_interval, end_interval) 
-        assigned = model.assigned[machine, operation, time_index]      
+        assigned = model.assigned[machine, oper, time_index]      
         return sum(model.assigned[machine, o, t] 
-                   for o in model.oper 
+                   for o in model.opers 
                    for t in time_interval) <= 1 + big_m*(1-assigned)
 
-    def locked_scheme_const(model, locked_oper):
-        machine = model.locked_oper_machine[locked_oper]
-        last_time_index = model.time_indices[-1]
-        second_to_last_time_index = model.time_indices[-2]
-        start_interval = min(second_to_last_time_index, model.locked_oper_start_time[locked_oper])
-        oper_end_time = model.locked_oper_start_time[locked_oper] + model.locked_oper_exec_time[locked_oper]
-        end_interval = min(last_time_index, oper_end_time)
-        time_interval = range(start_interval, end_interval)
-        return sum (model.assigned[machine, o, t]
-                    for o in model.oper
-                    for t in time_interval) <= 0
-    
-    def precedence_const(model, operation, other_operation):
-        if (operation == other_operation):
+    def locked_overlap_const(model, machine, locked_oper, time_index):
+        if (time_index == model.time_indices[-1]):
             return(pyo.Constraint.Skip)
-        start_time_oper = sum(t*model.assigned[m, other_operation, t] 
+        start_interval = min(time_index, model.time_indices[-2])
+        end_interval = min(model.locked_exec_time[locked_oper] + time_index, model.time_indices[-1])
+        time_interval = range(start_interval, end_interval) 
+        locked = model.locked_schedule[machine, locked_oper, time_index]      
+        return sum(model.assigned[machine, o, t] 
+                   for o in model.opers 
+                   for t in time_interval) <= big_m*(1-locked)
+    
+    def precedence_const(model, oper, other_oper):
+        if (oper == other_oper):
+            return(pyo.Constraint.Skip)
+        start_time_oper = sum(t*model.assigned[m, other_oper, t] 
                              for m in model.machines 
                              for t in model.time_indices)
-        end_time_sum = sum((t + model.exec_time[operation])*model.assigned[m, operation, t]
+        end_time_sum = sum((t + model.exec_time[oper])*model.assigned[m, oper, t]
                              for m in model.machines 
                              for t in model.time_indices)
-        end_time_other_oper = end_time_sum*model.precedence[operation,other_operation]
+        end_time_other_oper = end_time_sum*model.precedence[oper,other_oper]
         return(start_time_oper >= end_time_other_oper)
 
     model.objective = pyo.Objective(rule=objective)
-    model.no_duplicate = pyo.Constraint(model.oper, rule=duplicate_const)
-    model.machine_const = pyo.Constraint(model.machines, model.oper, rule=machine_const)
-    model.overlap_const = pyo.Constraint(model.machines, model.oper, model.time_indices, rule=overlap_const)
-    model.locked_scheme_const = pyo.Constraint(model.locked_oper, rule=locked_scheme_const)
-    model.precedence_const = pyo.Constraint(model.oper, model.oper, rule=precedence_const)
+    model.no_duplicate = pyo.Constraint(model.opers, rule=duplicate_const)
+    model.machine_const = pyo.Constraint(model.machines, model.opers, rule=machine_const)
+    model.overlap_const = pyo.Constraint(model.machines, model.opers, model.time_indices, rule=overlap_const)
+    # model.locked_overlap_const = pyo.Constraint(model.machines, model.locked_opers, model.time_indices, rule=locked_overlap_const)
+    # model.precedence_const = pyo.Constraint(model.opers, model.opers, rule=precedence_const)
     
     ############# SOLVE ############
     instance = model.create_instance(ilp_data)
@@ -94,16 +94,16 @@ def create_and_run_ilp(ilp_data : dict | str):
 
 if (__name__ == "__main__"):
     # https://readthedocs.org/projects/pyomo/downloads/pdf/stable/   
-    # SIDA 69/743 för att se hur den skrivs 
+    # SIDA 69/743 för att se hur den skrivs
     test_dict = {
         None: {
             "num_machines" : {
                 None: 2
             },
-            "num_operations" : {
+            "num_oper" : {
                 None: 2
             },
-            "num_locked_operations" : {
+            "num_locked_opers" : {
                 None: 1
             },
             "num_time_indices" : {
@@ -130,9 +130,9 @@ if (__name__ == "__main__"):
             },
             "precedence" : {
                 (1,1): 0,
-                (1,2): 0,
-                (2,1): 1,
-                (2,2): 0,
+                (1,2): 1,
+                (2,1): 0,
+                (2,2): 0
             }
 
         }
@@ -170,10 +170,10 @@ if (__name__ == "__main__"):
         return (solution_matrix)
 
     instance_num_machines = instance_2_numpy(instance.num_machines)
-    instance_num_operations = instance_2_numpy(instance.num_operations)
+    instance_num_opers = instance_2_numpy(instance.num_opers)
     instance_num_time_indices = instance_2_numpy(instance.num_time_indices)
-    instance_operation_time = instance_2_numpy(instance.exec_time, [instance_num_operations])
-    solution_shape = [instance_num_machines, instance_num_operations, instance_num_time_indices]
+    instance_operation_time = instance_2_numpy(instance.exec_time, [instance_num_opers])
+    solution_shape = [instance_num_machines, instance_num_opers, instance_num_time_indices]
     instance_solution_matrix = instance_2_numpy(instance.assigned, solution_shape)
 
     ########### PLOT ############
