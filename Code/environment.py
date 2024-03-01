@@ -242,6 +242,7 @@ class Environment:
     ### TIMELINE_MANAGEMENT ###
     def divide_timeline(self, num_divisions = 1) -> None:
         self.time_step_size = self.time_step_size/np.exp(2)
+        self.schedule[2,:] = 2*self.schedule[2,:]
         pass
     
     ### ILP_HANDLING ###    
@@ -305,7 +306,7 @@ class Environment:
         num_locked_operations = { None: len(locked_operations_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        #precedence = get_precedence()
+        precedence = get_precedence()
         locked_oper_machine, locked_oper_exec_time, locked_oper_start_time = get_locked_operations_info()
         ilp_input = {
             None: {
@@ -321,8 +322,6 @@ class Environment:
                 "locked_oper_start_time" : locked_oper_start_time
             }
         }
-        # with open(os.path.dirname(os.path.abspath(__file__))+"/Test_ilp.json", 'w') as json_file:
-            # json.dump(ilp_input, json_file, indent=4)
         print(ilp_input)
         return (ilp_input)
 
@@ -374,29 +373,51 @@ class Environment:
                         for k in range(shape_array[2]):
                             solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
             return (solution_matrix)
+        
+        def update_unlocked_operations(ilp_solution: np.ndarray, num_unlocked_oper: int):
+            for operation in range(num_unlocked_oper):
+                machine, start_time = np.where(ilp_solution[:,operation,:] == 1)
+                self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
+                self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0]
             
         num_machines = len(self.machines)
         num_unlocked_oper = instance_2_numpy(ilp_solution.num_operations)
         num_time_indices = instance_2_numpy(ilp_solution.num_time_indices)
         solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
-        for operation in range(num_unlocked_oper):
-            machine, start_time = np.where(ilp_solution_np[:,operation,:] == 1)
-            self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
-            self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0]
+        update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
+        
 
     ### MISC ###
     # def plot(self, t_interval: list[int]) -> None:
-    def plot(self) -> None:
-        # set t_interval default value to be the complete scheme
+    def plot(self, real_size = True) -> None:
+        """Plots the scheme
+
+        Args:
+            real_size (bool, optional): Weather or not the real length of each operation should be
+                                        displayed or the length of time_step_size. Defaults to True.
+            t_interval (list[int], optional): The time interval to plot within. Default is the
+                                              entire interval.
+        """
+        def set_and_get_order_color(order_tree: str) -> tuple[float,float,float,float]:
+            if not order_tree in order_tree_dict:
+                random_red = random.random()
+                random_green = random.random()
+                random_blue = random.random()
+                order_tree_dict[order_tree] = (random_red, random_green, random_blue, 1)
+            return order_tree_dict[order_tree]
+                
         fig, ax = plt.subplots()
+        order_tree_dict = {}
         for operation_index in range(self.schedule.shape[1]):
             machine_id = self.schedule[0,operation_index]
             operation = self.schedule[1,operation_index]
             start_time = self.schedule[2,operation_index]
-            exec_time = operation.execution_time
-            #plt.barh(y=machine_id, width=exec_time, left=start_time*self.time_step_size, alpha=0.4)#, color=team_colors[row['team']], alpha=0.4)
-            plt.barh(y=machine_id, width=self.time_step_size, left=start_time*self.time_step_size, alpha=0.4)#, color=team_colors[row['team']], alpha=0.4)
+            exec_time = self.time_step_size + (real_size)*(operation.execution_time - self.time_step_size)
+            offset = start_time*self.time_step_size
+            order_color = set_and_get_order_color(operation.order.name)
+            plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, color=order_color,
+                     edgecolor='black', linewidth=1.5)#, color=team_colors[row['team']], alpha=0.4)
         plt.title('Project Management Schedule of Project X', fontsize=15)
         plt.gca().invert_yaxis()
         ax.set_xticks(self.time_line)
@@ -431,7 +452,7 @@ if (__name__ == "__main__"):
         # json.dump(batched_data, json_file, indent=4)
     env = Environment(batched_data)
     time_interval = [1,100]
-    env.plot()
+    env.plot(False)
     num_runs = 4
     for iRun in range(num_runs):
         unlocked_operations, locked_operations = env.unlock_order(1, time_interval)
