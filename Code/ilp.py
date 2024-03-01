@@ -1,4 +1,5 @@
 ########### IMPORTS #################
+from platform import machine
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
@@ -18,6 +19,7 @@ def create_and_run_ilp(ilp_data : dict | str):
     model.locked_oper = pyo.RangeSet(1, model.num_locked_operations)
     model.time_indices = pyo.RangeSet(1, model.num_time_indices)
     model.valid_machines = pyo.Param(model.oper, model.machines)
+    model.precedence = pyo.Param(model.oper, model.oper)
     model.exec_time = pyo.Param(model.oper)
     model.locked_oper_machine = pyo.Param(model.locked_oper)
     model.locked_oper_start_time = pyo.Param(model.locked_oper)
@@ -63,12 +65,25 @@ def create_and_run_ilp(ilp_data : dict | str):
         return sum (model.assigned[machine, o, t]
                     for o in model.oper
                     for t in time_interval) <= 0
+    
+    def precedence_const(model, operation, other_operation):
+        if (operation == other_operation):
+            return(pyo.Constraint.Skip)
+        start_time_oper = sum(t*model.assigned[m, other_operation, t] 
+                             for m in model.machines 
+                             for t in model.time_indices)
+        end_time_sum = sum((t + model.exec_time[operation])*model.assigned[m, operation, t]
+                             for m in model.machines 
+                             for t in model.time_indices)
+        end_time_other_oper = end_time_sum*model.precedence[operation,other_operation]
+        return(start_time_oper >= end_time_other_oper)
 
     model.objective = pyo.Objective(rule=objective)
     model.no_duplicate = pyo.Constraint(model.oper, rule=duplicate_const)
     model.machine_const = pyo.Constraint(model.machines, model.oper, rule=machine_const)
     model.overlap_const = pyo.Constraint(model.machines, model.oper, model.time_indices, rule=overlap_const)
     model.locked_scheme_const = pyo.Constraint(model.locked_oper, rule=locked_scheme_const)
+    model.precedence_const = pyo.Constraint(model.oper, model.oper, rule=precedence_const)
     
     ############# SOLVE ############
     instance = model.create_instance(ilp_data)
@@ -112,7 +127,14 @@ if (__name__ == "__main__"):
             },
             "locked_oper_exec_time" : {
                 1: 2
+            },
+            "precedence" : {
+                (1,1): 0,
+                (1,2): 0,
+                (2,1): 1,
+                (2,2): 0,
             }
+
         }
     }
     
