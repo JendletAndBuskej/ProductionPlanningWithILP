@@ -4,18 +4,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os, json, re, math, random
 from classes import Operation, Order
-from Data_Converter.batch_data import Batch_Data
-from ilp import create_and_run_ilp
+from Data_Converter.batch_data import BatchData
+from ilp import create_ilp, run_ilp#, create_and_run_ilp
 import pyomo as pyo
 import pandas as pd
 from pyomo.opt import SolverFactory
 
 ############# ENVIRONMENT_CLASS_##############
 class Environment:
-    def __init__(self, data_json: dict) -> None:
+    def __init__(self, data_json: dict, machine_data_json : dict) -> None:
         self.orders_json = data_json
-        machine_data_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/Raw/lines_tab.txt"
-        self.machines = self.initialize_machines(machine_data_path)
+        self.machines = machine_data_json
         self.initialize_operations_data()
         self.orders = self.initialize_orders()
         self.time = []
@@ -23,33 +22,11 @@ class Environment:
         self.schedule = self.initial_schedule()
         self.precedence = self.initialize_precedence()
         self.time = []
-        self.max_oper = 1
-        print("self.machines")
-        for i in self.schedule[1][:]:
-            print(i.valid_machine_ids)
-        
+        self.max_oper = 1        
         # list of operations that are sent into the ilp 
         self.mapping_unlocked_operations = []  # [ActualIndex]   
     
     ### INITIALIZATION ###
-    def initialize_machines(self, data_path_machine_types: str) -> dict:
-        """Extracts machine data from the machine txt file 'lines_tab.txt'
-        and returns a dict with a machine ID as key and machine type as value
-
-        Args:
-            data_path_machine_types (str): Path to the data file containing machine data
-        """
-        txt_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=1, dtype=int)
-        machine_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=0, dtype=str)
-        machine_id = 0
-        machines = {}
-        for iM, num_machine_type in enumerate(txt_to_np):
-            machine_type = machine_to_np[iM]
-            for machine in range(num_machine_type):
-                machines[machine_id] = machine_type
-                machine_id += 1
-        return (machines)
-
     def initialize_operations_data(self) -> list["Operation"]:
         """Instanciates and returns all operations as a list, 
         where the elements are of the class 'Operation'. 
@@ -62,10 +39,8 @@ class Environment:
         def get_valid_machine_ids(machine_types: list[str]) -> list[int]:
             valid_machine_ids = []
             for m_type in machine_types:
-                m_type_as_int = self.find_int_in_string(m_type)[0]
                 for machine_id, machine_type in self.machines.items():
-                    machine_type_as_int = self.find_int_in_string(machine_type)[0]
-                    if machine_type_as_int == m_type_as_int:
+                    if machine_type == m_type:
                         valid_machine_ids += [machine_id]
             return (valid_machine_ids)
 
@@ -553,13 +528,14 @@ def instance_2_numpy(instance_data, shape_array= []):
 
 if (__name__ == "__main__"):
     num_orders = 2
-    batched_orders = Batch_Data(batch_size=num_orders)
+    batched_orders = BatchData(batch_size=num_orders)
     batched_data = batched_orders.get_batch()
+    machines_data = batched_orders.get_machines()
     with open(os.path.dirname(os.path.abspath(__file__))+"/Test.json", 'w') as json_file:
         json.dump(batched_data, json_file, indent=4)
     with open(os.path.dirname(os.path.abspath(__file__))+"/test1337.json", 'r') as f:
         test1337 = json.load(f)
-    env = Environment(test1337)
+    env = Environment(test1337, machines_data)
     time_interval = [0,6]
     # env.plot(True)
     num_runs = 1

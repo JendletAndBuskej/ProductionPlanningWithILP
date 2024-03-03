@@ -1,8 +1,6 @@
 import numpy as np
 import os, json
 
-
-
 def compress_txt_file(raw_data_path, parsed_file_name):
 
     if parsed_file_name in os.listdir("Data/Raw/"):
@@ -17,8 +15,6 @@ def compress_txt_file(raw_data_path, parsed_file_name):
 
                 idx = np.where(compressed_txt_file[:,0] == prod[0])[0][0]
                 compressed_txt_file[idx,1] += [prod[1]]
-
-        
 
             return compressed_txt_file
 
@@ -115,6 +111,25 @@ def create_json(compressed):
     with open(master_path+"/Data/Parsed_Json/all_orders.json", "w") as f:
         json.dump(parsed_json, f, indent=4)
 
+def convert_machines(data_path_machine_types: str) -> None:
+        """Extracts machine data from the machine txt file 'lines_tab.txt'
+        and returns a dict with a machine ID as key and machine type as value
+
+        Args:
+            data_path_machine_types (str): Path to the data file containing machine data
+        """
+        txt_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=1, dtype=int)
+        machine_to_np = np.genfromtxt(data_path_machine_types, skip_header=1, usecols=0, dtype=str)
+        machine_id = 0
+        machines = {}
+        for iM, num_machine_type in enumerate(txt_to_np):
+            machine_type = machine_to_np[iM]
+            for machine in range(num_machine_type):
+                machines[machine_id] = machine_type
+                machine_id += 1
+        
+        with open(master_path+"/Data/Parsed_Json/machines.json", "w") as f:
+            json.dump(machines, f, indent=4)
 
 if __name__ == "__main__":
     this_path = os.path.dirname(os.path.abspath(__file__))
@@ -125,6 +140,8 @@ if __name__ == "__main__":
 
     compressed = compress_txt_file(raw_data_path, parsed_file_name)
     create_json(compressed)
+    convert_machines(raw_data_path+"lines_tab.txt")
+
 
     
 

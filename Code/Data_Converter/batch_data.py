@@ -1,10 +1,7 @@
 import numpy as np
 import os, json
 
-#os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
-
-
-class Batch_Data:
+class BatchData:
 
     def __init__(self, batch_size = 100):
         self.batch_size = batch_size
@@ -27,6 +24,13 @@ class Batch_Data:
         #self.all_orders_json = np.loadtxt(self.data_path+"/raw/all_orders_json.txt",dtype=str,delimiter="\t")      
         with open(self.data_path+"/Parsed_Json/all_orders.json", "r") as f:
             self.all_orders_json = json.load(f)      
+        
+        with open(self.data_path+"/Parsed_Json/all_orders.json", "r") as f:
+            self.all_orders_json = json.load(f)    
+
+        with open(self.data_path+"/Parsed_Json/machines.json", "r") as f:
+            self.machines = json.load(f)  
+        self.machines = {int(key): value for key, value in self.machines.items()}
 
 
     def get_order_preds(self,order,randomize_FG):
@@ -86,18 +90,16 @@ class Batch_Data:
     def add_preds_to_queue_list(self,pred_list):
         """
         if len(pred_list) == 0:
-            return
+            return ()
         """
 
         if pred_list.shape == ():
             self.queue = np.append(self.queue,pred_list)
-            return
+            return ()
 
         for pred in pred_list:
             self.queue = np.append(self.queue,pred)
             
-
-
     def get_batch(self, randomize_FG = False):    
         while True:
             # breaks when all orders have been found
@@ -114,19 +116,25 @@ class Batch_Data:
 
         #batchPath = self.data_path+"/batched/infoMatrixBatched.txt"
         #np.savetxt(batchPath, self.batch_order_list ,delimiter="\t",fmt='%s')
-        return self.batch_order_list
+        return (self.batch_order_list)
+
+    def get_machines(self):
+        return (self.machines)
+
+    def generate_due_dates():
+        return
     
-    
+    def save_as_json(self, data, path):
+        with open(self.data_path+path, "w") as f:
+            #json.dump(self.batch_order_list, f, indent=4)
+            json.dump(data, f, indent=4)
 
-    def save_as_json(self):
-        with open(self.data_path+"/Parsed_Json/batched.json", "w") as f:
-            json.dump(self.batch_order_list, f, indent=4)
-
-
-batch_data = Batch_Data(batch_size=8)
-batched_data = batch_data.get_batch()
-#print(batchedData)
-batch_data.save_as_json()
+if __name__ == "__main__":
+    batch_data = BatchData(batch_size=8)
+    batched_data = batch_data.get_batch()
+    #print(batchedData)
+    batch_data.save_as_json(batched_data, "/Parsed_Json/batched.json")
+    print(batch_data.get_machines())
 
 
 
