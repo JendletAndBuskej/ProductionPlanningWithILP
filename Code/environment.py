@@ -485,8 +485,8 @@ class Environment:
         oper_on_line = []
         for oper_idx in range(len(self.schedule[0])):
             oper_info = [self.schedule[0][oper_idx],
-                     self.schedule[1][oper_idx],
-                     self.schedule[2][oper_idx]]
+                         self.schedule[1][oper_idx],
+                         self.schedule[2][oper_idx]]
             check_start_time = oper_info[2] < time_of_line
             exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
             check_end_time = oper_info[2] + exe_time >= time_of_line
