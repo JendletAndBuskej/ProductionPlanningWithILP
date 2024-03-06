@@ -5,7 +5,7 @@
             "line_01"
         ],
         "startup_time": 0,
-        "operation_time": 1,
+        "operation_time": 2,
         "num_operator": 14.0,
         "parent": "",
         "tree": "T1"
@@ -16,7 +16,7 @@
             "line_01"
         ],
         "startup_time": 0,
-        "operation_time": 1,
+        "operation_time": 2,
         "num_operator": 14.0,
         "parent": "",
         "tree": "T2"

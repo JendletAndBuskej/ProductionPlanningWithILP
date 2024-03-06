@@ -19,10 +19,13 @@ class Environment:
         self.schedule, self.time_line = self.initial_schedule_and_time_line()
         self.time_step_size = self.time_line[1] - self.time_line[0]
         self.precedence = self.initialize_precedence()
-        t_interval = [0,4]
+        t_interval = [1,8]
+        self.divide_timeline(1)
         ul, l = self.unlock_machine(1,t_interval,[9])
         # ul = PP1, FG1
         # l = PP2, FG2
+        for u in ul:
+            print(self.schedule[1,u].name)
         print(self.to_ilp(ul,l,t_interval))
         
 
@@ -251,19 +254,6 @@ class Environment:
         ) -> tuple[list["Operation"], list["Operation"]]:
         """Help function to unlock operations
         """
-        def line_check(time_of_line: int) -> list[int]:
-            oper_on_line = []
-            for oper_idx in range(len(self.schedule[0])):
-                oper_info = [self.schedule[0][oper_idx],
-                            self.schedule[1][oper_idx],
-                            self.schedule[2][oper_idx]]
-                check_start_time = oper_info[2] < time_of_line
-                exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
-                check_end_time = oper_info[2] + exe_time >= time_of_line
-                if (check_start_time and check_end_time):
-                    oper_on_line += [oper_idx]
-            return (oper_on_line)
-    
         valid_statements = ["order", "machine"]
         if not check_statement in valid_statements:
             print("error not a valid unlock statement")
@@ -278,20 +268,21 @@ class Environment:
             object_idx = random.sample(range(object_amount), num_objects)
         for oper_idx in range(self.schedule.shape[1]):
             oper_info = self.schedule[:,oper_idx]
-            if (oper_info[2] >= t_interval[0] and oper_info[2] < t_interval[1]):
-                exe_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
-                check_within_upper_bound = oper_info[2] + exe_time <= t_interval[1]
-                for i,idx in enumerate(object_idx):
-                    if (check_statement == "order"):
-                        check_same = (oper_info[1].order == self.orders[idx])
-                    if (check_statement == "machine"):
-                        check_same = (oper_info[0] == idx)
-                    if (check_same and check_within_upper_bound):
-                        unlocked_oper += [oper_idx]
-                        break
-                    if (i+1 == len(object_idx)):
-                        locked_oper += [oper_idx]
-        locked_oper += line_check(t_interval[0])
+            exec_time = math.ceil(oper_info[1].execution_time/self.time_step_size)
+            if not (oper_info[2] + exec_time > t_interval[0] and oper_info[2] < t_interval[1]):
+                continue
+            check_within_upper_bound = oper_info[2] + exec_time <= t_interval[1]
+            check_within_lower_bound = oper_info[2] >= t_interval[0]
+            for i,idx in enumerate(object_idx):
+                if (check_statement == "order"):
+                    check_same = (oper_info[1].order == self.orders[idx])
+                if (check_statement == "machine"):
+                    check_same = (oper_info[0] == idx)
+                if (check_same and check_within_upper_bound and check_within_lower_bound):
+                    unlocked_oper += [oper_idx]
+                    break
+                if (i+1 == len(object_idx)):
+                    locked_oper += [oper_idx]
         return (unlocked_oper, locked_oper)
     
     ### TIMELINE_MANAGEMENT ###
@@ -367,12 +358,15 @@ class Environment:
             opers = init_dict(num_machines, num_oper, time_interval_length)
             exec_times = init_dict(num_oper)
             for iOper, oper_index in enumerate(locked_opers_indices):
+                exec_time_red  = 0
                 oper = self.schedule[:,oper_index]
                 oper_machine = oper[0] + 1
-                # unsure about the 
                 oper_start_time = oper[2] + 1
+                if (oper_start_time < time_interval[0]):
+                    exec_time_red = time_interval[0] - oper_start_time
+                    oper_start_time = time_interval[0]
                 opers[(oper_machine, iOper+1, oper_start_time)] = 1
-                exec_time = math.ceil(oper[1].execution_time/self.time_step_size)
+                exec_time = math.ceil(oper[1].execution_time/self.time_step_size) - exec_time_red
                 exec_times[iOper+1] = exec_time
             return (opers, exec_times)
         
@@ -381,13 +375,19 @@ class Environment:
             self.mapping_unlocked_operations = unlocked_opers_indices
         
         def get_precedence():
-            all_opers_indices = unlocked_opers_indices.copy()
-            all_opers_indices = np.append(all_opers_indices, locked_opers_indices)
-            precedence = init_dict(len(all_opers_indices), len(all_opers_indices))
-            for i,iIdx in enumerate(all_opers_indices):
-                for j,jIdx in enumerate(all_opers_indices):
+            prece_locked_before =  init_dict(len(locked_opers_indices), len(unlocked_opers_indices))
+            prece_locked_after =  init_dict(len(unlocked_opers_indices), len(locked_opers_indices))
+            precedence = init_dict(len(unlocked_opers_indices), len(unlocked_opers_indices))
+            for i,iIdx in enumerate(unlocked_opers_indices):
+                for j,jIdx in enumerate(unlocked_opers_indices):
                     precedence[(i+1,j+1)] = self.precedence[iIdx,jIdx]
-            return (precedence)
+            for i,iIdx in enumerate(locked_opers_indices):
+                for j,jIdx in enumerate(unlocked_opers_indices):
+                    prece_locked_before[(i+1,j+1)] = self.precedence[iIdx,jIdx]
+            for i,iIdx in enumerate(unlocked_opers_indices):
+                for j,jIdx in enumerate(locked_opers_indices):
+                    prece_locked_after[(i+1,j+1)] = self.precedence[iIdx,jIdx]
+            return (precedence, prece_locked_before, prece_locked_after)
         
         self.mapping_unlocked_operations = [] 
         num_machines = { None: len(self.machines)}
@@ -396,7 +396,7 @@ class Environment:
         num_locked_operations = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        precedence = get_precedence()
+        precedence, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
         ilp_input = {
             None: {
@@ -406,6 +406,8 @@ class Environment:
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
                 "precedence" : precedence,
+                "locked_prece_before": prece_locked_before,
+                "locked_prece_after": prece_locked_after,
                 "exec_time" : exec_time,
                 "locked_exec_time" : locked_oper_exec_time,
                 "locked_schedule" : locked_schedule

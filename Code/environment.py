@@ -424,7 +424,7 @@ class Environment:
             for operation in range(num_unlocked_oper):
                 machine, start_time = np.where(ilp_solution[:,operation,:] == 1)
                 self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
-                self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0]
+                self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0] #+ time interval[0]
             
         num_machines = len(self.machines)
         num_unlocked_oper = instance_2_numpy(ilp_solution.num_opers)
