@@ -20,7 +20,7 @@ def create_ilp(weight_json: dict | str = {}):
     """
     if (len(weight_json) == 0):
         weight_json = {
-            "makeSpan": 1
+            "make_span": 1
         }
     model = pyo.AbstractModel()
     # CONSTANTS
@@ -63,15 +63,15 @@ def create_ilp(weight_json: dict | str = {}):
     def machine_const(model, machine, oper):
         valid_machine = model.valid_machines[oper, machine]
         if (valid_machine == 1):
-            return pyo.Constraint.Skip
+            return (pyo.Constraint.Skip)
         return sum(model.assigned[machine,oper,t] 
                    for t in model.time_indices) <= valid_machine
 
     def overlap_const(model, machine, oper, time_index):
-        if (time_index == model.time_indices[-1]):
-            return(pyo.Constraint.Skip)
-        start_interval = min(time_index, model.time_indices[-2])
-        end_interval = min(model.exec_time[oper] + time_index, model.time_indices[-1])
+        if (time_index == model.time_indices.at(-1)):
+            return (pyo.Constraint.Skip)
+        start_interval = min(time_index, model.time_indices.at(-2))
+        end_interval = min(model.exec_time[oper] + time_index, model.time_indices.at(-1))
         time_interval = range(start_interval, end_interval) 
         locked_schedule = model.assigned[machine, oper, time_index]      
         return sum(model.assigned[machine, o, t] 
@@ -79,11 +79,11 @@ def create_ilp(weight_json: dict | str = {}):
                    for t in time_interval) <= 1 + BIG_M*(1-locked_schedule)
 
     def locked_overlap_const(model, machine, locked_oper, time_index):
-        if (time_index == model.time_indices[-1]):
-            return(pyo.Constraint.Skip)
-        start_interval = min(time_index, model.time_indices[-2])
+        if (time_index == model.time_indices.at(-1)):
+            return (pyo.Constraint.Skip)
+        start_interval = min(time_index, model.time_indices.at(-2))
         end_interval = min(model.locked_exec_time[locked_oper] 
-                           + time_index, model.time_indices[-1])
+                           + time_index, model.time_indices.at(-1))
         time_interval = range(start_interval, end_interval) 
         locked = model.locked_schedule[machine, locked_oper, time_index]
         return sum(model.assigned[machine, o, t] 
@@ -93,7 +93,7 @@ def create_ilp(weight_json: dict | str = {}):
     def precedence_const(model, oper, other_oper):
         precedence = model.precedence[oper,other_oper]
         if (precedence == 0 or oper == other_oper):
-            return(pyo.Constraint.Skip)
+            return (pyo.Constraint.Skip)
         start_time_oper = sum(t*model.assigned[m, other_oper, t] 
                               for m in model.machines 
                               for t in model.time_indices)
@@ -101,12 +101,12 @@ def create_ilp(weight_json: dict | str = {}):
                            for m in model.machines 
                            for t in model.time_indices)
         end_time_other_oper = end_time_sum*precedence
-        return(start_time_oper >= end_time_other_oper + 1)
+        return (start_time_oper >= end_time_other_oper)
     
-    def locked_prece_before_const(model, locked_oper, oper):
-        precedence = model.locked_prece_before[locked_oper,oper]
+    def locked_prece_after_const(model, oper, locked_oper):
+        precedence = model.locked_prece_after[oper, locked_oper]
         if (precedence == 0):
-            return(pyo.Constraint.Skip)
+            return (pyo.Constraint.Skip)
         start_time_locked = sum(t*model.locked_schedule[m, locked_oper, t] 
                                 for m in model.machines 
                                 for t in model.time_indices)
@@ -114,12 +114,12 @@ def create_ilp(weight_json: dict | str = {}):
                            for m in model.machines 
                            for t in model.time_indices)
         end_time_other_oper = end_time_sum*precedence
-        return(start_time_locked >= end_time_other_oper + 1)
+        return (start_time_locked >= end_time_other_oper)
     
-    def locked_prece_after_const(model, oper, locked_oper):
-        precedence = model.locked_prece_after[oper,locked_oper]
+    def locked_prece_before_const(model, locked_oper, oper):
+        precedence = model.locked_prece_before[locked_oper, oper]
         if (precedence == 0):
-            return(pyo.Constraint.Skip)
+            return (pyo.Constraint.Skip)
         start_time_oper = sum(t*model.assigned[m, oper, t] 
                               for m in model.machines 
                               for t in model.time_indices)
@@ -128,18 +128,18 @@ def create_ilp(weight_json: dict | str = {}):
                            for m in model.machines 
                            for t in model.time_indices)
         end_time_locked_oper = end_time_sum*precedence
-        return(start_time_oper >= end_time_locked_oper + 1)
+        return (start_time_oper >= end_time_locked_oper)
 
     ################ OBJECTIVE_FUNCTION ######################
     def objective(model):
-        def makeSpan():
+        def make_span_behavior():
             return sum(t * model.assigned[m, o, t] 
                        for m in model.machines 
                        for o in model.opers 
                        for t in model.time_indices)
         
-        makeSpan = weight_json["makeSpan"]*makeSpan()
-        return(makeSpan)
+        make_span = weight_json["make_span"]*make_span_behavior()
+        return (make_span)
 
     ############## SET_MODEL ###############
     model.objective = pyo.Objective(rule=objective)
@@ -165,7 +165,7 @@ def create_ilp(weight_json: dict | str = {}):
     model.locked_prece_after_const = pyo.Constraint(model.opers, 
                                                     model.locked_opers, 
                                                     rule=locked_prece_after_const)
-    return(model)
+    return (model)
 
 def run_ilp(model, ilp_data : dict | str):
     """This function runs an abstract model with given instance data
@@ -178,7 +178,7 @@ def run_ilp(model, ilp_data : dict | str):
     instance = model.create_instance(ilp_data)
     opt = SolverFactory("glpk")
     opt.solve(instance)
-    return(instance)
+    return (instance)
 
 
 #####################################
@@ -187,6 +187,76 @@ def run_ilp(model, ilp_data : dict | str):
 if (__name__ == "__main__"):
     # https://readthedocs.org/projects/pyomo/downloads/pdf/stable/   
     # SIDA 69/743 för att se hur den skrivs
+    # test_dict = {
+    #     None: {
+    #         "num_machines" : {
+    #             None: 2
+    #         },
+    #         "num_opers" : {
+    #             None: 2
+    #         },
+    #         "num_locked_opers" : {
+    #             None: 2
+    #         },
+    #         "num_time_indices" : {
+    #             None: 5
+    #         },
+    #         "valid_machines" : {
+    #             (1,1): 1,
+    #             (1,2): 1,
+    #             (2,1): 1,
+    #             (2,2): 1,
+    #         },
+    #         "exec_time" : {
+    #             1: 2,
+    #             2: 2,
+    #         },
+    #         "locked_schedule" : {
+    #             (1,1,1): 1,
+    #             (1,1,2): 0,
+    #             (1,1,3): 0,
+    #             (1,1,4): 0,
+    #             (1,1,5): 0,
+    #             (2,1,1): 0,
+    #             (2,1,2): 0,
+    #             (2,1,3): 0,
+    #             (2,1,4): 0,
+    #             (2,1,5): 0,
+    #             (1,2,1): 0,
+    #             (1,2,2): 0,
+    #             (1,2,3): 0,
+    #             (1,2,4): 0,
+    #             (1,2,5): 0,
+    #             (2,2,1): 1,
+    #             (2,2,2): 0,
+    #             (2,2,3): 0,
+    #             (2,2,4): 0,
+    #             (2,2,5): 0
+    #         },
+    #         "locked_exec_time" : {
+    #             1: 1,
+    #             2: 1,
+    #         },
+    #         "precedence" : {
+    #             (1,1): 0,
+    #             (1,2): 0,
+    #             (2,1): 0,
+    #             (2,2): 0,
+    #         },
+    #         "locked_prece_before" : {
+    #             (1,1): 1,
+    #             (1,2): 0,
+    #             (2,1): 0,
+    #             (2,2): 1,
+    #         },
+    #         "locked_prece_after" : {
+    #             (1,1): 0,
+    #             (1,2): 0,
+    #             (2,1): 0,
+    #             (2,2): 0,
+    #         }
+    #     }
+    # }
     test_dict = {
         None: {
             "num_machines" : {
@@ -241,13 +311,13 @@ if (__name__ == "__main__"):
                 (3,3): 0,
             },
             "locked_prece_before" : {
-                (1,1): 1,
-                (1,2): 0,
+                (1,1): 0,
+                (1,2): 1,
                 (1,3): 0,
             },
             "locked_prece_after" : {
                 (1,1): 0,
-                (2,1): 1,
+                (2,1): 0,
                 (3,1): 0,
             }
         }
@@ -299,7 +369,7 @@ if (__name__ == "__main__"):
         for operation in range(gantt_dims[1]):
             gantt_of_operation = gantt_matrix[:,operation,:]
             machine, start_of_operation = np.where(gantt_of_operation == 1)
-            plt.barh(y=machine, width=operations_times[operation], left= start_of_operation)#, color=team_colors[row['team']], alpha=0.4)
+            plt.barh(y=machine, width=operations_times[operation], left= start_of_operation + 1)#, color=team_colors[row['team']], alpha=0.4)
         plt.title('Project Management Schedule of Project X', fontsize=15)
         plt.gca().invert_yaxis()
         ax.xaxis.grid(True, alpha=0.5)

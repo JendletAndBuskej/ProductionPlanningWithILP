@@ -1,7 +1,7 @@
 ############## IMPORT ################
 import numpy as np
 import matplotlib.pyplot as plt
-import os, json, re, math, random
+import os, json, math, random
 from classes import Operation, Order
 from Data_Converter.batch_data import BatchData
 from ilp import create_ilp, run_ilp
@@ -11,7 +11,7 @@ import pandas as pd
 
 ############# ENVIRONMENT_CLASS_##############
 class Environment:
-    def __init__(self, input_json: dict) -> None:
+    def __init__(self, input_json: dict, weight_json: dict = {}) -> None:
         self.input_json = input_json
         self.machines = self.initialize_machines()
         self.initialize_operations_data()
@@ -19,16 +19,8 @@ class Environment:
         self.schedule, self.time_line = self.initial_schedule_and_time_line()
         self.time_step_size = self.time_line[1] - self.time_line[0]
         self.precedence = self.initialize_precedence()
-        t_interval = [1,8]
-        self.divide_timeline(1)
-        ul, l = self.unlock_machine(1,t_interval,[9])
-        # ul = PP1, FG1
-        # l = PP2, FG2
-        for u in ul:
-            print(self.schedule[1,u].name)
-        print(self.to_ilp(ul,l,t_interval))
-        
-
+        self.model = self.create_ilp_model(weight_json)
+    
     ### INITIALIZATION ###
     def initialize_machines(self):
         """Instanciates the machines as a dict, keys as the IDS and the values as the machine type.
@@ -338,19 +330,6 @@ class Environment:
                     valid_machines[(iUO+1,machine_id+1)] = 1
             return (valid_machines, exec_time)
 
-        ## old, yet gold
-        # def get_locked_operations_info() -> tuple[dict, dict, dict]:
-            # locked_operation_machine = init_dict(len(locked_operations_indices))
-            # locked_operation_start_time = init_dict(len(locked_operations_indices))
-            # locked_operation_exec_time = init_dict(len(locked_operations_indices))
-            # for iLO, locked_operation_index in enumerate(locked_operations_indices):
-                # locked_operation = self.schedule[:,locked_operation_index]
-                # locked_operation_machine[iLO+1] = locked_operation[0]
-                # exec_time = math.ceil(locked_operation[1].execution_time/self.time_step_size)
-                # locked_operation_exec_time[iLO+1] = exec_time
-                # locked_operation_start_time[iLO+1] = locked_operation[2] + 1 
-            # return (locked_operation_machine, locked_operation_exec_time, locked_operation_start_time)
-        
         def get_locked_oper_info() -> tuple[dict, dict]:
             time_interval_length = time_interval[1] - time_interval[0]
             num_machines = len(self.machines)
@@ -358,15 +337,15 @@ class Environment:
             opers = init_dict(num_machines, num_oper, time_interval_length)
             exec_times = init_dict(num_oper)
             for iOper, oper_index in enumerate(locked_opers_indices):
-                exec_time_red  = 0
+                time_reduce  = 0
                 oper = self.schedule[:,oper_index]
                 oper_machine = oper[0] + 1
-                oper_start_time = oper[2] + 1
-                if (oper_start_time < time_interval[0]):
-                    exec_time_red = time_interval[0] - oper_start_time
-                    oper_start_time = time_interval[0]
+                oper_start_time = oper[2] + 1 - time_interval[0]
+                if (oper_start_time < 1):
+                    time_reduce = 1 - oper_start_time
+                    oper_start_time = 1
                 opers[(oper_machine, iOper+1, oper_start_time)] = 1
-                exec_time = math.ceil(oper[1].execution_time/self.time_step_size) - exec_time_red
+                exec_time = math.ceil(oper[1].execution_time/self.time_step_size) - time_reduce
                 exec_times[iOper+1] = exec_time
             return (opers, exec_times)
         
@@ -375,19 +354,19 @@ class Environment:
             self.mapping_unlocked_operations = unlocked_opers_indices
         
         def get_precedence():
-            prece_locked_before =  init_dict(len(locked_opers_indices), len(unlocked_opers_indices))
-            prece_locked_after =  init_dict(len(unlocked_opers_indices), len(locked_opers_indices))
-            precedence = init_dict(len(unlocked_opers_indices), len(unlocked_opers_indices))
-            for i,iIdx in enumerate(unlocked_opers_indices):
-                for j,jIdx in enumerate(unlocked_opers_indices):
-                    precedence[(i+1,j+1)] = self.precedence[iIdx,jIdx]
-            for i,iIdx in enumerate(locked_opers_indices):
-                for j,jIdx in enumerate(unlocked_opers_indices):
-                    prece_locked_before[(i+1,j+1)] = self.precedence[iIdx,jIdx]
-            for i,iIdx in enumerate(unlocked_opers_indices):
-                for j,jIdx in enumerate(locked_opers_indices):
-                    prece_locked_after[(i+1,j+1)] = self.precedence[iIdx,jIdx]
-            return (precedence, prece_locked_before, prece_locked_after)
+            def sub_precedence(row, col):
+                if (len(col) == 0 or len(row) == 0):
+                    return ({})
+                prece = init_dict(len(row),len(col))
+                for i,iIdx in enumerate(row):
+                    for j,jIdx in enumerate(col):
+                        prece[(i+1,j+1)] = self.precedence[iIdx,jIdx]
+                return (prece)
+
+            prece_unlocked =  sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
+            prece_locked_before =  sub_precedence(locked_opers_indices, unlocked_opers_indices)
+            prece_locked_after =  sub_precedence(unlocked_opers_indices, locked_opers_indices)
+            return (prece_unlocked, prece_locked_before, prece_locked_after)
         
         self.mapping_unlocked_operations = [] 
         num_machines = { None: len(self.machines)}
@@ -396,7 +375,7 @@ class Environment:
         num_locked_operations = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        precedence, prece_locked_before, prece_locked_after = get_precedence()
+        prece_unlocked, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
         ilp_input = {
             None: {
@@ -405,7 +384,7 @@ class Environment:
                 "num_locked_opers" : num_locked_operations,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
-                "precedence" : precedence,
+                "precedence" : prece_unlocked,          #change name of precedence
                 "locked_prece_before": prece_locked_before,
                 "locked_prece_after": prece_locked_after,
                 "exec_time" : exec_time,
@@ -415,8 +394,134 @@ class Environment:
         }
         return (ilp_input)
     
+    def create_ilp_model(self, ilp_dict: dict = {}):
+        """create ILP abstract model.
+
+        Args:
+            ilp_dict (dict, optional): _description_. Defaults to {}.
+
+        Returns:
+            _type_: _description_
+        """
+        model = create_ilp(ilp_dict)
+        return (model)
+
+    def objective_function_weights(self, weight: dict) -> None:
+        self.model = create_ilp(weight)
+
+    def run_ilp_instance(self, ilp_data: dict):
+        """creates an concrete instance of the model and solves that instance.
+
+        Args:
+            ilp_data (dict): _description_
+        """
+        solved_instance = run_ilp(self.model, ilp_data)
+        return (solved_instance)
+
+    def update_from_ilp_solution(self, ilp_solution, t_interval) -> None:
+        """Updates Environment's class variable self.schedule according to the solution of the ILP.
+
+        Args:
+            ilp_solution (UNKNOWN): the solved instance of the ilp
+        """
+        def instance_2_numpy(
+                # instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
+                instance_data, 
+                shape_array: np.ndarray | list = [] 
+            ) -> float | np.ndarray:
+            """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
+            The return will be a numpy array/matrix but just the value in the case of a single value (dimension of 0).
+            In the case of a single value the shape_array should be an empty array "[]".
+
+            Args:
+                instance_data (pyomo.Var, pyomo.Param or pyomo.Set): This is your input data ex. "instance.num_machines" and should always start with "instance.".
+                shape_array (Array or np.array): This is the dimensionality of your input data ex. "[3,2,4]". What you would expect from "np.shape".
+            """
+            df = pd.DataFrame.from_dict(instance_data.extract_values(), orient='index')
+            solution_flat_matrix = df.to_numpy()
+            if len(shape_array) == 0:
+                return(solution_flat_matrix[0,0])
+            if len(shape_array) == 1:
+                return(solution_flat_matrix[:,0])
+            solution_matrix = np.empty(shape_array)
+            if len(shape_array) == 2:
+                for i in range(shape_array[0]):
+                    for j in range(shape_array[1]):
+                        solution_matrix[i,j] = solution_flat_matrix[shape_array[1]*i + j,0]
+            if len(shape_array) == 3:
+                for i in range(shape_array[0]):
+                    for j in range(shape_array[1]):
+                        for k in range(shape_array[2]):
+                            solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
+            return (solution_matrix)
+        
+        def update_unlocked_operations(ilp_solution: np.ndarray, num_unlocked_oper: int):
+            for operation in range(num_unlocked_oper):
+                machine, start_time = np.where(ilp_solution[:,operation,:] == 1)
+                self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
+                self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0] + t_interval[0]
+            
+        num_machines = len(self.machines)
+        num_unlocked_oper = instance_2_numpy(ilp_solution.num_opers)
+        num_time_indices = instance_2_numpy(ilp_solution.num_time_indices)
+        solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
+        ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
+        update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
+
+    def plot(self, real_size = True) -> None:
+        """Plots the scheme
+
+        Args:
+            real_size (bool, optional): Weather or not the real length of each operation should be
+                                        displayed or the length of time_step_size. Defaults to True.
+            t_interval (list[int], optional): The time interval to plot within. Default is the
+                                              entire interval.
+        """
+        def set_and_get_order_color(order_tree: str) -> tuple[float,float,float,float]:
+            if not order_tree in order_tree_dict:
+                random_red = random.random()
+                random_green = random.random()
+                random_blue = random.random()
+                order_tree_dict[order_tree] = (random_red, random_green, random_blue, 1)
+            return order_tree_dict[order_tree]
+        
+        def get_operation_text(operation: "Operation") -> str:
+            operation_text = ""
+            if operation.order.operations[-1] == operation:
+                operation_text = operation.name.split("FG_")[-1]
+            return operation_text
+        
+        fig, ax = plt.subplots()
+        order_tree_dict = {}
+        for operation_index in range(self.schedule.shape[1]):
+            machine_id = self.schedule[0,operation_index]
+            operation = self.schedule[1,operation_index]
+            start_time = self.schedule[2,operation_index]
+            exec_time = self.time_step_size + (real_size)*(operation.execution_time - self.time_step_size)
+            offset = start_time*self.time_step_size
+            order_color = set_and_get_order_color(operation.order.name)
+            finished_operation_text = get_operation_text(operation)
+            plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, 
+                     color=order_color, edgecolor='black', linewidth=1.5)
+            plt.text(x=offset, y=machine_id, s=finished_operation_text)
+        plt.title("Gantt Scheme of Product Planing", fontsize=15)
+        plt.gca().invert_yaxis()
+        ax.set_xticks(self.time_line)
+        ax.xaxis.grid(True, alpha=0.5)
+        # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
+        plt.show()
+        plt.close()
+
 if (__name__ == "__main__"):
     with open(os.path.dirname(os.path.abspath(__file__))+"/test1337.json", 'r') as f:
         test1337 = json.load(f)
     env = Environment(test1337)
-    pass
+        #####_TEST
+    t_interval = [0,9]
+    ul, l = env.unlock_machine(1,t_interval,[9,10])
+    # ul = PP1, FG1
+    # l = PP2, FG2
+    ilp_data = env.to_ilp(ul,l,t_interval)
+    solved_instance = env.run_ilp_instance(ilp_data)
+    env.update_from_ilp_solution(solved_instance, t_interval)
+    env.plot()
