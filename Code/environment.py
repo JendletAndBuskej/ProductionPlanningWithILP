@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os, json, math, random
+from datetime import datetime
 from classes import Operation, Order
 from Data_Converter.batch_data import BatchData
 from ilp import create_ilp, run_ilp
@@ -395,13 +396,14 @@ class Environment:
         return (ilp_input)
     
     def create_ilp_model(self, ilp_dict: dict = {}):
-        """create ILP abstract model.
+        """Create ILP abstract model.
 
         Args:
-            ilp_dict (dict, optional): _description_. Defaults to {}.
+            ilp_dict (dict, optional): Sets weights and different settings for the Abstract Model.
+                                    Defaults to {} := weights are 1 and all constraints included.
 
         Returns:
-            _type_: _description_
+            UNKNOWN: The Pyomo Abstract Model used for ILP
         """
         model = create_ilp(ilp_dict)
         return (model)
@@ -410,7 +412,7 @@ class Environment:
         self.model = create_ilp(weight)
 
     def run_ilp_instance(self, ilp_data: dict):
-        """creates an concrete instance of the model and solves that instance.
+        """Creates an concrete instance of the model and solves that instance.
 
         Args:
             ilp_data (dict): _description_
@@ -468,12 +470,16 @@ class Environment:
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
         update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
 
-    def plot(self, real_size = True) -> None:
+    def plot(self, real_size = True, save_plot = False, hide_text = False) -> None:
         """Plots the scheme
 
         Args:
             real_size (bool, optional): Weather or not the real length of each operation should be
                                         displayed or the length of time_step_size. Defaults to True.
+            save_plot (bool, optional): Weather or not the plot should be saved or shown. 
+                                        Defaults to Show, False.
+            hide_text (bool, optional): Weather or not the plot should contain text or not. 
+                                        Defaults to contain text, False.
             t_interval (list[int], optional): The time interval to plot within. Default is the
                                               entire interval.
         """
@@ -503,11 +509,27 @@ class Environment:
             finished_operation_text = get_operation_text(operation)
             plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, 
                      color=order_color, edgecolor='black', linewidth=1.5)
-            plt.text(x=offset, y=machine_id, s=finished_operation_text)
+            if (not hide_text):
+                plt.text(x=offset, y=machine_id, s=finished_operation_text)
         plt.title("Gantt Scheme of Product Planing", fontsize=15)
         plt.gca().invert_yaxis()
         ax.set_xticks(self.time_line)
+        xticks_length = self.time_line.shape[0]
+        xticks = xticks_length*[""]
         ax.xaxis.grid(True, alpha=0.5)
+        if (hide_text):
+            ax.xaxis.grid(False)
+            ax.set_xticklabels(xticks)
         # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
+        if save_plot:
+            plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
+            plot_name = datetime.now().strftime("%H_%M_%S")
+            plt.savefig(plot_path+plot_name+".png")
+            plt.clf()
+            plt.cla()
+            plt.close()
+            return
         plt.show()
+        plt.clf()
+        plt.cla()
         plt.close()
