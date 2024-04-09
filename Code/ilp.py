@@ -48,11 +48,18 @@ def create_ilp(weight_json: dict | str = {}):
     model.locked_schedule = pyo.Param(model.machines, 
                                       model.locked_opers, 
                                       model.time_indices)
+    # INITIAL VALUE OF VARIABLE
+    model.previous_schedule = pyo.Param(model.machines, 
+                                        model.opers, 
+                                        model.time_indices,
+                                        domain=pyo.Binary)
     # VARIABLE
     model.assigned = pyo.Var(model.machines, 
                              model.opers, 
-                             model.time_indices, 
-                             domain=pyo.Binary)
+                             model.time_indices,
+                            #  domain=pyo.Binary)
+                             domain=pyo.Binary,
+                             initialize=model.previous_schedule)
 
     #################### CONSTRAINTS ########################
     def duplicate_const(model, oper):

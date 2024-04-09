@@ -19,6 +19,7 @@ class Environment:
         self.orders = self.initialize_orders()
         self.schedule, self.time_line = self.initial_schedule_and_time_line()
         self.time_step_size = self.time_line[1] - self.time_line[0]
+        self.longest_oper = self.time_line[1] - self.time_line[0]
         self.precedence = self.initialize_precedence()
         self.model = self.create_ilp_model(weight_json)
     
@@ -289,6 +290,24 @@ class Environment:
         self.schedule[2,:] = 2*self.schedule[2,:]
         self.time_line = self.time_step_size * np.arange(2*self.time_line.shape[0]-1)
     
+    def remove_excess_time(self) -> None:
+        """Removes excess of the time line
+        """
+        def find_makespan():
+            max_time = 0
+            for iOper in range(self.schedule.shape[1]):
+                oper_start_time = self.schedule[2,iOper]*self.time_step_size 
+                oper_exec_time = self.schedule[1,iOper].execution_time
+                oper_completed_time = oper_start_time + oper_exec_time
+                if (oper_completed_time > max_time):
+                    max_time = oper_completed_time
+            return (max_time)
+
+        makespan = find_makespan()
+        new_timeline_max = makespan + self.longest_oper 
+        timeline_indices_to_remove = np.where(self.time_line > new_timeline_max)
+        self.time_line = np.delete(self.time_line, timeline_indices_to_remove)
+        
     ### ILP_HANDLING ###    
     def to_ilp(
             self, 
@@ -351,8 +370,8 @@ class Environment:
             return (opers, exec_times)
         
         def map_unlocked_operations():
-            self.mapping_unlocked_operations.clear()
-            self.mapping_unlocked_operations = unlocked_opers_indices
+            self.mapping_unlocked_opers.clear()
+            self.mapping_unlocked_opers = unlocked_opers_indices
         
         def get_precedence():
             def sub_precedence(row, col):
@@ -364,27 +383,43 @@ class Environment:
                         prece[(i+1,j+1)] = self.precedence[iIdx,jIdx]
                 return (prece)
 
-            prece_unlocked =  sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
-            prece_locked_before =  sub_precedence(locked_opers_indices, unlocked_opers_indices)
-            prece_locked_after =  sub_precedence(unlocked_opers_indices, locked_opers_indices)
+            prece_unlocked = sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
+            prece_locked_before = sub_precedence(locked_opers_indices, unlocked_opers_indices)
+            prece_locked_after = sub_precedence(unlocked_opers_indices, locked_opers_indices)
             return (prece_unlocked, prece_locked_before, prece_locked_after)
         
-        self.mapping_unlocked_operations = [] 
+        def get_previous_schedule():
+            num_machines = len(self.machines)
+            num_opers = len(unlocked_opers_indices)
+            time_interval_len = time_interval[1] - time_interval[0] 
+            previous_schedule = init_dict(num_machines,num_opers,time_interval_len)
+            for iOper, oper in enumerate(unlocked_opers_indices):
+                oper_machine = self.schedule[0,oper] + 1
+                oper_start_time = self.schedule[2,oper] - time_interval[0] + 1
+                previous_schedule[(oper_machine,iOper+1,oper_start_time)] = 1
+            return (previous_schedule)
+            
+        self.mapping_unlocked_opers = [] 
         num_machines = { None: len(self.machines)}
-        num_operations = { None: len(unlocked_opers_indices)}
+        num_opers = { None: len(unlocked_opers_indices)}
         map_unlocked_operations()
-        num_locked_operations = { None: len(locked_opers_indices)}
+        previous_schedule = get_previous_schedule()
+        num_locked_opers = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         valid_machines, exec_time = get_valid_machines_and_exec_time()
         prece_unlocked, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
+        # print("self.schedule: ", self.schedule)
+        # print("unlocked_index: ", unlocked_opers_indices)
+        # print("previous_schedule: ", previous_schedule)
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
-                "num_opers" : num_operations,
-                "num_locked_opers" : num_locked_operations,
+                "num_opers" : num_opers,
+                "num_locked_opers" : num_locked_opers,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
+                "previous_schedule" : previous_schedule,
                 "precedence" : prece_unlocked,          #change name of precedence
                 "locked_prece_before": prece_locked_before,
                 "locked_prece_after": prece_locked_after,
@@ -460,8 +495,8 @@ class Environment:
         def update_unlocked_operations(ilp_solution: np.ndarray, num_unlocked_oper: int):
             for operation in range(num_unlocked_oper):
                 machine, start_time = np.where(ilp_solution[:,operation,:] == 1)
-                self.schedule[0,self.mapping_unlocked_operations[operation]] = machine[0]
-                self.schedule[2,self.mapping_unlocked_operations[operation]] = start_time[0] + t_interval[0]
+                self.schedule[0,self.mapping_unlocked_opers[operation]] = machine[0]
+                self.schedule[2,self.mapping_unlocked_opers[operation]] = start_time[0] + t_interval[0]
             
         num_machines = len(self.machines)
         num_unlocked_oper = instance_2_numpy(ilp_solution.num_opers)
@@ -508,7 +543,7 @@ class Environment:
             order_color = set_and_get_order_color(operation.order.name)
             finished_operation_text = get_operation_text(operation)
             plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, 
-                     color=order_color, edgecolor='black', linewidth=1.5)
+                     color=order_color, edgecolor='black', linewidth=0.7)
             if (not hide_text):
                 plt.text(x=offset, y=machine_id, s=finished_operation_text)
         plt.title("Gantt Scheme of Product Planing", fontsize=15)
