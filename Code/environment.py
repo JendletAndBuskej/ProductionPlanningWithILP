@@ -122,13 +122,17 @@ class Environment:
             operation_data = self.input_json[operation]
             order_tree = operation_data["tree"]
             if order_tree not in orders:
-                orders[order_tree] = []     
-            orders[order_tree] += [self.operations_data[iOp]]
+                orders[order_tree] = {}
+                orders[order_tree]["operations"] = []
+            if "due_date" in operation_data:
+                orders[order_tree]["due_date"] = operation_data["due_date"]
+            orders[order_tree]["operations"] += [self.operations_data[iOp]]
         orders_list = []
         for iOrd, order_tree in enumerate(orders):
             ord = Order(id=iOrd,
                         name=order_tree,
-                        operations=orders[order_tree])
+                        operations=orders[order_tree]["operations"],
+                        due_date=orders[order_tree]["due_date"])
             for operation in ord.operations:
                 operation.set_order(ord)
             ord = sort_order(ord)
@@ -308,7 +312,7 @@ class Environment:
         timeline_indices_to_remove = np.where(self.time_line > new_timeline_max)
         self.time_line = np.delete(self.time_line, timeline_indices_to_remove)
         
-    ### ILP_HANDLING ###    
+    ### ILP_HANDLING ###
     def to_ilp(
             self, 
             unlocked_opers_indices: list[int], 
@@ -373,7 +377,7 @@ class Environment:
             self.mapping_unlocked_opers.clear()
             self.mapping_unlocked_opers = unlocked_opers_indices
         
-        def get_precedence():
+        def get_precedence() -> dict:
             def sub_precedence(row, col):
                 if (len(col) == 0 or len(row) == 0):
                     return ({})
@@ -383,12 +387,26 @@ class Environment:
                         prece[(i+1,j+1)] = self.precedence[iIdx,jIdx]
                 return (prece)
 
-            prece_unlocked = sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
+            precedence = sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
             prece_locked_before = sub_precedence(locked_opers_indices, unlocked_opers_indices)
             prece_locked_after = sub_precedence(unlocked_opers_indices, locked_opers_indices)
-            return (prece_unlocked, prece_locked_before, prece_locked_after)
+            return (precedence, prece_locked_before, prece_locked_after)
         
-        def get_previous_schedule():
+        def get_unlocked_amount_operators() -> dict:
+            amount_operators = init_dict(len(unlocked_opers_indices))
+            num_operators_np = np.array([oper.num_operators for oper in self.schedule[1,unlocked_opers_indices]])
+            for iOper, num_oper in enumerate(num_operators_np):
+                amount_operators[iOper+1] = num_oper
+            return (amount_operators)
+        
+        def get_locked_amount_operators() -> dict:
+            amount_operators = init_dict(len(locked_opers_indices))
+            num_operators_np = np.array([oper.num_operators for oper in self.schedule[1,locked_opers_indices]])
+            for iOper, num_oper in enumerate(num_operators_np):
+                amount_operators[iOper+1] = num_oper
+            return (amount_operators)
+        
+        def get_previous_schedule() -> dict:
             num_machines = len(self.machines)
             num_opers = len(unlocked_opers_indices)
             time_interval_len = time_interval[1] - time_interval[0] 
@@ -398,34 +416,100 @@ class Environment:
                 oper_start_time = self.schedule[2,oper] - time_interval[0] + 1
                 previous_schedule[(oper_machine,iOper+1,oper_start_time)] = 1
             return (previous_schedule)
-            
+        
+        def get_orders_within_interval() -> list["Order"]:
+            all_indicies = unlocked_opers_indices + locked_opers_indices
+            orders_within_interval = []
+            for iOper, oper in enumerate(all_indicies):
+                order = self.schedule[1,oper].order
+                if order in orders_within_interval:
+                    continue
+                orders_within_interval += [order]
+            return (orders_within_interval) 
+        
+        def get_final_order_in(order_within: list["Order"]) -> dict:
+            final_order_in = init_dict(len(order_within))
+            for iOrd, order in enumerate(order_within):
+                opers_np = np.array(order.operations)
+                oper_indices = np.where(np.isin(self.schedule[1,:], opers_np))
+                final_order_start_time = np.max(self.schedule[2,oper_indices])
+                if (final_order_start_time < time_interval[1]):
+                    final_order_in[iOrd+1] = 1
+            return (final_order_in)
+        
+        def get_init_order_in(order_within: list["Order"]) -> dict:
+            init_order_in = init_dict(len(order_within))
+            for iOrd, order in enumerate(order_within):
+                opers_np = np.array(order.operations)
+                oper_indices = np.where(np.isin(self.schedule[1,:], opers_np))
+                exec_times = np.array([math.ceil(oper.execution_time/self.time_step_size) 
+                                       for oper in self.schedule[1,oper_indices[0]]])
+                finished_times = self.schedule[2,oper_indices[0]] + exec_times
+                init_order_finished_time = np.min(finished_times)
+                if (init_order_finished_time > time_interval[0]):
+                    init_order_in[iOrd+1] = 1
+            return (init_order_in)
+        
+        def get_order_unlocked_oper(order_within: list["Order"]) -> dict:
+            is_oper_in_order = init_dict(len(order_within), len(unlocked_opers_indices))
+            for iOper, oper in enumerate(unlocked_opers_indices):
+                oper_order = self.schedule[1,oper].order
+                iOrd = np.where(np.isin(order_within, oper_order))[0]
+                print(iOrd)
+                is_oper_in_order[(iOrd[0]+1,iOper+1)] = 1
+            return (is_oper_in_order)
+        
+        def get_order_locked_oper(order_within: list["Order"]) -> dict:
+            is_locked_in_order = init_dict(len(order_within), len(locked_opers_indices))
+            for iOper, oper in enumerate(locked_opers_indices):
+                oper_order = self.schedule[1,oper].order
+                iOrd = np.where(np.isin(order_within, oper_order))[0]
+                print(iOrd)
+                is_locked_in_order[(iOrd[0]+1,iOper+1)] = 1
+            return (is_locked_in_order)
+        
         self.mapping_unlocked_opers = [] 
         num_machines = { None: len(self.machines)}
         num_opers = { None: len(unlocked_opers_indices)}
+        orders_within_interval = get_orders_within_interval()
+        num_orders = len(orders_within_interval)
         map_unlocked_operations()
         previous_schedule = get_previous_schedule()
         num_locked_opers = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
+        amount_operators = get_unlocked_amount_operators()
         valid_machines, exec_time = get_valid_machines_and_exec_time()
-        prece_unlocked, prece_locked_before, prece_locked_after = get_precedence()
+        precedence, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
+        locked_amount_operators = get_locked_amount_operators()
+        is_final_order_in = get_final_order_in(orders_within_interval)
+        is_init_order_in = get_init_order_in(orders_within_interval)
+        is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
+        is_locked_in_order = get_order_locked_oper(orders_within_interval)
+        print("is_final_order_in: ",is_final_order_in)
+        print("is_init_order_in: ",is_init_order_in)
+        print("is_oper_in_order: ",is_oper_in_order)
+        print("is_locked_in_order: ",is_locked_in_order)
         # print("self.schedule: ", self.schedule)
-        # print("unlocked_index: ", unlocked_opers_indices)
-        # print("previous_schedule: ", previous_schedule)
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
                 "num_opers" : num_opers,
+                "num_orders" : num_orders,
                 "num_locked_opers" : num_locked_opers,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
                 "previous_schedule" : previous_schedule,
-                "precedence" : prece_unlocked,          #change name of precedence
+                "precedence" : precedence,          #change name of precedence
                 "locked_prece_before": prece_locked_before,
                 "locked_prece_after": prece_locked_after,
                 "exec_time" : exec_time,
                 "locked_exec_time" : locked_oper_exec_time,
-                "locked_schedule" : locked_schedule
+                "locked_schedule" : locked_schedule,
+                "amount_operators" : amount_operators,
+                "locked_amount_operators" : locked_amount_operators,
+                "is_final_order_in" : is_final_order_in,
+                "is_init_order_in" : is_init_order_in,
             }
         }
         return (ilp_input)
@@ -446,13 +530,14 @@ class Environment:
     def objective_function_weights(self, weight: dict) -> None:
         self.model = create_ilp(weight)
 
-    def run_ilp_instance(self, ilp_data: dict):
-        """Creates an concrete instance of the model and solves that instance.
+    def run_ilp_instance(self, ilp_data: dict, timelimit: int | None = None) -> None:
+        """Creates an instance of the abstract model and solves that instance.
 
         Args:
             ilp_data (dict): _description_
+            timelimit (int | None, optional): _description_. Defaults to None.
         """
-        solved_instance = run_ilp(self.model, ilp_data)
+        solved_instance = run_ilp(self.model, ilp_data, timelimit=timelimit)
         return (solved_instance)
 
     def update_from_ilp_solution(self, ilp_solution, t_interval) -> None:
@@ -532,7 +617,13 @@ class Environment:
                 operation_text = operation.name.split("FG_")[-1]
             return operation_text
         
-        fig, ax = plt.subplots()
+        def get_machine_ticks() -> list[str]:
+            machine_ids = list(self.machines.keys())
+            machine_types = list(self.machines.values())
+            machine_ticks = [f"{mtype} (ID: {mID})" for mID, mtype in zip(machine_ids, machine_types)]
+            return (machine_ticks)
+        
+        fig, ax = plt.subplots(figsize=(16,9))
         order_tree_dict = {}
         for operation_index in range(self.schedule.shape[1]):
             machine_id = self.schedule[0,operation_index]
@@ -551,6 +642,10 @@ class Environment:
         ax.set_xticks(self.time_line)
         xticks_length = self.time_line.shape[0]
         xticks = xticks_length*[""]
+        machine_ticks = get_machine_ticks()
+        # ax.set_yticks(len(self.machines)*[""])
+        ax.set_yticks(np.arange(len(self.machines)))
+        ax.set_yticklabels(machine_ticks, fontsize = 12)
         ax.xaxis.grid(True, alpha=0.5)
         if (hide_text):
             ax.xaxis.grid(False)

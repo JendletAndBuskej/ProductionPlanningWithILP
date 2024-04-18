@@ -1,6 +1,6 @@
 ########### IMPORTS #################
 import pyomo.environ as pyo
-from pyomo.opt import SolverFactory
+from pyomo.opt import SolverFactory, TerminationCondition
 ### IMPORTS_FOR_TEST ###
 import numpy as np
 import pandas as pd
@@ -48,6 +48,8 @@ def create_ilp(weight_json: dict | str = {}):
     model.locked_schedule = pyo.Param(model.machines, 
                                       model.locked_opers, 
                                       model.time_indices)
+    model.amount_operators = pyo.Param(model.opers)
+    model.locked_amount_operators = pyo.Param(model.locked_opers)
     # INITIAL VALUE OF VARIABLE
     model.previous_schedule = pyo.Param(model.machines, 
                                         model.opers, 
@@ -85,7 +87,7 @@ def create_ilp(weight_json: dict | str = {}):
                    for o in model.opers 
                    for t in time_interval) <= 1 + BIG_M*(1-locked_schedule)
 
-    def locked_overlap_const(model, machine, locked_oper, time_index):
+    def locked_overlap_after_const(model, machine, locked_oper, time_index):
         if (time_index == model.time_indices.at(-1)):
             return (pyo.Constraint.Skip)
         start_interval = min(time_index, model.time_indices.at(-2))
@@ -96,6 +98,18 @@ def create_ilp(weight_json: dict | str = {}):
         return sum(model.assigned[machine, o, t] 
                    for o in model.opers 
                    for t in time_interval) <= BIG_M*(1-locked)
+    
+    def locked_overlap_before_const(model, machine, oper, time_index):
+        if (time_index == model.time_indices.at(-1)):
+            return (pyo.Constraint.Skip)
+        start_interval = min(time_index, model.time_indices.at(-2))
+        end_interval = min(model.exec_time[oper] 
+                           + time_index, model.time_indices.at(-1))
+        time_interval = range(start_interval, end_interval) 
+        unlocked = model.assigned[machine, oper, time_index]
+        return sum(model.locked_schedule[machine, o, t] 
+                   for o in model.locked_opers
+                   for t in time_interval) <= BIG_M*(1-unlocked)
     
     def precedence_const(model, oper, other_oper):
         precedence = model.precedence[oper,other_oper]
@@ -159,10 +173,14 @@ def create_ilp(weight_json: dict | str = {}):
                                          model.opers, 
                                          model.time_indices, 
                                          rule=overlap_const)
-    model.locked_overlap_const = pyo.Constraint(model.machines, 
+    model.locked_overlap_after_const = pyo.Constraint(model.machines, 
                                                 model.locked_opers, 
                                                 model.time_indices, 
-                                                rule=locked_overlap_const)
+                                                rule=locked_overlap_after_const)
+    model.locked_overlap_before_const = pyo.Constraint(model.machines, 
+                                                model.opers, 
+                                                model.time_indices, 
+                                                rule=locked_overlap_before_const)
     model.precedence_const = pyo.Constraint(model.opers, 
                                             model.opers, 
                                             rule=precedence_const)
@@ -174,17 +192,25 @@ def create_ilp(weight_json: dict | str = {}):
                                                     rule=locked_prece_after_const)
     return (model)
 
-def run_ilp(model, ilp_data : dict | str):
+def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
     """This function runs an abstract model with given instance data
     and returns the solved instance if the model.
 
     Args:
         model (pyo.AbstractModel): An abstract model.
         ilp_data (dict | str): The instance data.
+        timelimit (int | None, optional): The time limit of the solution. Defaults to no time limit.
     """
     instance = model.create_instance(ilp_data)
     opt = SolverFactory("glpk")
-    opt.solve(instance)
+    if (timelimit is None):
+        opt.solve(instance)
+        return (instance)
+    results = opt.solve(instance)#, timelimit=timelimit)
+    opt.options["TimeLimit"] = timelimit
+    # if (results.solver.termination_condition == pyo.TerminationCondition.maxTimeLimit):
+    if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
+        print("Maximum time limit reached")
     return (instance)
 
 
