@@ -450,19 +450,20 @@ class Environment:
             return (init_order_in)
         
         def get_order_unlocked_oper(order_within: list["Order"]) -> dict:
-            is_oper_in_order = init_dict(len(order_within), max(1,len(unlocked_opers_indices)))
+            is_oper_in_order = init_dict(len(unlocked_opers_indices), len(order_within))
             for iOper, oper in enumerate(unlocked_opers_indices):
                 oper_order = self.schedule[1,oper].order
                 iOrd = np.where(np.isin(order_within, oper_order))[0]
-                is_oper_in_order[(iOrd[0]+1,iOper+1)] = 1
+                is_oper_in_order[(iOper+1,iOrd[0]+1)] = 1
             return (is_oper_in_order)
         
         def get_order_locked_oper(order_within: list["Order"]) -> dict:
-            is_locked_in_order = init_dict(len(order_within), max(1,len(locked_opers_indices)))
+            # is_locked_in_order = init_dict(len(order_within), max(1,len(locked_opers_indices)))
+            is_locked_in_order = init_dict(len(locked_opers_indices), len(order_within))
             for iOper, oper in enumerate(locked_opers_indices):
                 oper_order = self.schedule[1,oper].order
                 iOrd = np.where(np.isin(order_within, oper_order))[0]
-                is_locked_in_order[(iOrd[0]+1,iOper+1)] = 1
+                is_locked_in_order[(iOper+1,iOrd[0]+1)] = 1
             return (is_locked_in_order)
         
         def get_order_due_dates(order_within: list["Order"]):
@@ -490,6 +491,10 @@ class Environment:
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
+        print("Schedule: ",self.schedule)
+        print("time_interval: ",time_interval)
+        print("unlocked index: ",unlocked_opers_indices)
+        print("Locked index: ",locked_opers_indices)
         print("is_final_order_in: ",is_final_order_in)
         print("is_init_order_in: ",is_init_order_in)
         print("is_oper_in_order: ",is_oper_in_order)

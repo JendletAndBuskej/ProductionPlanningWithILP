@@ -54,8 +54,8 @@ def create_ilp(weight_json: dict | str = {}):
     model.locked_amount_operators = pyo.Param(model.locked_opers)
     model.is_final_order_in = pyo.Param(model.orders)
     model.is_init_order_in = pyo.Param(model.orders)
-    model.is_oper_in_order = pyo.Param(model.orders, model.opers)
-    model.is_locked_in_order = pyo.Param(model.orders, model.locked_opers)
+    model.is_oper_in_order = pyo.Param(model.opers, model.orders)
+    model.is_locked_in_order = pyo.Param(model.locked_opers, model.orders)
     # INITIAL VALUE OF VARIABLE
     model.previous_schedule = pyo.Param(model.machines, 
                                         model.opers, 
