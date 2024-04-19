@@ -107,7 +107,7 @@ iRun = 1
 factor = 15
 max_runs = factor*25
 # max_runs = 2
-env.plot(real_size=True, save_plot=True, hide_text=True)
+# env.plot(real_size=True, save_plot=True, hide_text=True)
 env.divide_timeline()
 run_complete = False
 while True:

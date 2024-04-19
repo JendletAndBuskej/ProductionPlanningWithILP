@@ -27,11 +27,13 @@ def create_ilp(weight_json: dict | str = {}):
     BIG_M = 10000
     model.num_machines = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_opers = pyo.Param(within=pyo.NonNegativeIntegers)
+    model.num_orders = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_locked_opers = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
     # RANGES
     model.machines = pyo.RangeSet(1, model.num_machines)
     model.opers = pyo.RangeSet(1, model.num_opers)
+    model.orders = pyo.RangeSet(1, model.num_orders)
     model.locked_opers = pyo.RangeSet(1, model.num_locked_opers)
     model.time_indices = pyo.RangeSet(1, model.num_time_indices)
     # PARAMETER
@@ -50,6 +52,10 @@ def create_ilp(weight_json: dict | str = {}):
                                       model.time_indices)
     model.amount_operators = pyo.Param(model.opers)
     model.locked_amount_operators = pyo.Param(model.locked_opers)
+    model.is_final_order_in = pyo.Param(model.orders)
+    model.is_init_order_in = pyo.Param(model.orders)
+    model.is_oper_in_order = pyo.Param(model.orders, model.opers)
+    model.is_locked_in_order = pyo.Param(model.orders, model.locked_opers)
     # INITIAL VALUE OF VARIABLE
     model.previous_schedule = pyo.Param(model.machines, 
                                         model.opers, 
@@ -208,7 +214,6 @@ def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
         return (instance)
     results = opt.solve(instance)#, timelimit=timelimit)
     opt.options["TimeLimit"] = timelimit
-    # if (results.solver.termination_condition == pyo.TerminationCondition.maxTimeLimit):
     if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
         print("Maximum time limit reached")
     return (instance)

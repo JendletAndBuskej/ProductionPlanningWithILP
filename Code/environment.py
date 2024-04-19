@@ -9,7 +9,6 @@ from ilp import create_ilp, run_ilp
 import pyomo as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
-
 ############# ENVIRONMENT_CLASS_##############
 class Environment:
     def __init__(self, input_json: dict, weight_json: dict = {}) -> None:
@@ -81,7 +80,7 @@ class Environment:
         def sort_order(order: "Order") -> "Order":
             sort_help_dict = {0 : []}
             operations = order.get_operations()
-            sorted_order = Order(id=order.id, name=order.name, operations=[])
+            sorted_order = Order(id=order.id, name=order.name, operations=[], due_date=order.due_date)
             # finds all leaf operations
             for operation_ref in operations:
                 leaf_operation = True
@@ -451,28 +450,32 @@ class Environment:
             return (init_order_in)
         
         def get_order_unlocked_oper(order_within: list["Order"]) -> dict:
-            is_oper_in_order = init_dict(len(order_within), len(unlocked_opers_indices))
+            is_oper_in_order = init_dict(len(order_within), max(1,len(unlocked_opers_indices)))
             for iOper, oper in enumerate(unlocked_opers_indices):
                 oper_order = self.schedule[1,oper].order
                 iOrd = np.where(np.isin(order_within, oper_order))[0]
-                print(iOrd)
                 is_oper_in_order[(iOrd[0]+1,iOper+1)] = 1
             return (is_oper_in_order)
         
         def get_order_locked_oper(order_within: list["Order"]) -> dict:
-            is_locked_in_order = init_dict(len(order_within), len(locked_opers_indices))
+            is_locked_in_order = init_dict(len(order_within), max(1,len(locked_opers_indices)))
             for iOper, oper in enumerate(locked_opers_indices):
                 oper_order = self.schedule[1,oper].order
                 iOrd = np.where(np.isin(order_within, oper_order))[0]
-                print(iOrd)
                 is_locked_in_order[(iOrd[0]+1,iOper+1)] = 1
             return (is_locked_in_order)
         
+        def get_order_due_dates(order_within: list["Order"]):
+            order_due_dates = init_dict(len(order_within))
+            for iOrd, order in enumerate(order_within):
+                order_due_dates[iOrd+1] = math.ceil(order.due_date/self.time_step_size)
+            return (order_due_dates)
+
         self.mapping_unlocked_opers = [] 
         num_machines = { None: len(self.machines)}
         num_opers = { None: len(unlocked_opers_indices)}
         orders_within_interval = get_orders_within_interval()
-        num_orders = len(orders_within_interval)
+        num_orders = { None: len(orders_within_interval)}
         map_unlocked_operations()
         previous_schedule = get_previous_schedule()
         num_locked_opers = { None: len(locked_opers_indices)}
@@ -486,10 +489,12 @@ class Environment:
         is_init_order_in = get_init_order_in(orders_within_interval)
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
+        order_due_dates = get_order_due_dates(orders_within_interval)
         print("is_final_order_in: ",is_final_order_in)
         print("is_init_order_in: ",is_init_order_in)
         print("is_oper_in_order: ",is_oper_in_order)
         print("is_locked_in_order: ",is_locked_in_order)
+        print("order_due_dates: ", order_due_dates)
         # print("self.schedule: ", self.schedule)
         ilp_input = {
             None: {
@@ -510,6 +515,9 @@ class Environment:
                 "locked_amount_operators" : locked_amount_operators,
                 "is_final_order_in" : is_final_order_in,
                 "is_init_order_in" : is_init_order_in,
+                "is_oper_in_order" : is_oper_in_order,
+                "is_locked_in_order" : is_locked_in_order,
+                "order_due_dates" : order_due_dates,
             }
         }
         return (ilp_input)
