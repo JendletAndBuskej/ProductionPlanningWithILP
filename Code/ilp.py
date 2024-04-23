@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def create_ilp(weight_json: dict | str = {}):
+def instanciate_ilp_model(weight_json: dict | str = {}):
     """This function constructs an abstract ILP model of our problem.
     This constructions is done with a set of constrains and objective
     function parts that can be weighted in an json to get an desired result.
@@ -32,7 +32,6 @@ def create_ilp(weight_json: dict | str = {}):
     BIG_M = 10000
     model.num_machines = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_opers = pyo.Param(within=pyo.NonNegativeIntegers)
-    model.num_orders = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_locked_opers = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_orders = pyo.Param(within=pyo.NonNegativeIntegers)
@@ -42,7 +41,6 @@ def create_ilp(weight_json: dict | str = {}):
     model.orders = pyo.RangeSet(1, model.num_orders)
     model.locked_opers = pyo.RangeSet(1, model.num_locked_opers)
     model.time_indices = pyo.RangeSet(1, model.num_time_indices)
-    model.orders = pyo.RangeSet(1, model.num_orders)
     # PARAMETER
     model.valid_machines = pyo.Param(model.opers, 
                                      model.machines)
@@ -59,7 +57,7 @@ def create_ilp(weight_json: dict | str = {}):
                                       model.time_indices)
     model.is_init_order_in = pyo.Param(model.orders)
     model.is_final_order_in = pyo.Param(model.orders)
-    model.is_oper_in_order = pyo.Param(model.oper, 
+    model.is_oper_in_order = pyo.Param(model.opers, 
                                        model.orders)
     model.is_locked_in_order = pyo.Param(model.locked_opers, 
                                          model.orders)
@@ -72,17 +70,17 @@ def create_ilp(weight_json: dict | str = {}):
                                         model.opers, 
                                         model.time_indices,
                                         domain=pyo.Binary)
-    # VARIABLE
+    # VARIABLES
     model.assigned = pyo.Var(model.machines, 
                              model.opers, 
-                             model.time_indices,
-                            #  domain=pyo.Binary)
-                             domain=pyo.Binary,
+                             model.time_indices, 
+                            #  domain=pyo.Binary) 
+                             domain=pyo.Binary, 
                              initialize=model.previous_schedule)
     model.orders_start_time = pyo.Param(model.orders, 
                                         domain = pyo.NegativeIntegers)
-    model.orders_finnish_time = pyo.Param(model.orders, 
-                                        domain = pyo.NegativeIntegers)
+    model.orders_finish_time = pyo.Param(model.orders, 
+                                         domain = pyo.NegativeIntegers)
 
     #################### CONSTRAINTS ########################
     def duplicate_const(model, oper):
@@ -172,30 +170,29 @@ def create_ilp(weight_json: dict | str = {}):
         end_time_locked_oper = end_time_sum*precedence
         return (start_time_oper >= end_time_locked_oper)
     
-    def lowest_order_oper_const(model, order):
+    def earliest_order_oper_const(model, order):
         return (model.orders_start_time[order] <= model.big_m - (model.is_oper_in_order[o, order]-t*model.assigned[m,o,t]) 
                 for m in model.machines
                 for o in model.opers
                 for t in model.time_indices)
     
-    def lowest_order_locked_const(model, order):
+    def earliest_order_locked_const(model, order):
         return (model.orders_start_time[order] <= model.big_m - (model.is_locked_in_order[o, order]-t*model.locked_schedule[m,o,t]) 
                 for m in model.machines
                 for o in model.locked_opers
                 for t in model.time_indices)
     
-    def highest_order_oper_const(model, order):
-        return (model.orders_finnish_time[order] >= model.big_m - (model.is_oper_in_order[o, order]-t*model.assigned[m,o,t]) 
+    def last_order_oper_const(model, order):
+        return (model.orders_finish_time[order] >= model.big_m - (model.is_oper_in_order[o, order]-t*model.assigned[m,o,t]) 
                 for m in model.machines
                 for o in model.opers
                 for t in model.time_indices)
     
-    def highest_order_locked_const(model, order):
-        return (model.orders_finnish_time[order] >= model.big_m - (model.is_locked_in_order[o, order]-t*model.locked_schedule[m,o,t]) 
+    def last_order_locked_const(model, order):
+        return (model.orders_finish_time[order] >= model.big_m - (model.is_locked_in_order[o, order]-t*model.locked_schedule[m,o,t]) 
                 for m in model.machines
                 for o in model.locked_opers
                 for t in model.time_indices)
-
 
     ################ OBJECTIVE_FUNCTION ######################
     def objective(model):
@@ -204,13 +201,15 @@ def create_ilp(weight_json: dict | str = {}):
                        for m in model.machines 
                        for o in model.opers 
                        for t in model.time_indices)
+            
         def lead_time_behaviour():
             def calculate_max_time(order):
-                return (model.is_final_order_in*model.orders_finnish_time[order])
+                return (model.is_final_order_in[order]*model.orders_finish_time[order])
             def calculate_min_time(order):
-                return (-model.is_init_order_in*model.orders_start_time[order])
+                return (-model.is_init_order_in[order]*model.orders_start_time[order])
             return (sum(calculate_max_time(order) - calculate_min_time(order) 
                         for order in model.orders))
+            
         def operators_behaviour():
             def calculate_operators(time_idx):
                 amount = sum(model.assigned[m, o, time_idx]*model.amount_operators[o] 
@@ -222,21 +221,24 @@ def create_ilp(weight_json: dict | str = {}):
                 return (amount + locked_amount)
             return (sum(max(calculate_operators(t) - weight_json["optimal_amount_operators"], 0) 
                         for t in model.time_indices))
+            
         def earliness_behaviour():
             def calculate_max_time(order):
-                return (model.orders_finnish_time[order])
-            return (sum(model.is_final_order_in*max(0, calculate_max_time(order)-model.due_date[order])
-                    for order in model.orders))
+                return (model.orders_finish_time[order])
+            return (sum(model.is_final_order_in[order]*max(0, calculate_max_time(order)-model.due_date[order])
+                        for order in model.orders))
+            
         def tardiness_behaviour():
             def calculate_max_time(order):
-                return (model.orders_finnish_time[order])
-            return (sum(model.is_final_order_in*max(0, model.due_date[order] - calculate_max_time(order))
+                return (model.orders_finish_time[order])
+            return (sum(model.is_final_order_in[order]*max(0, model.due_date[order] - calculate_max_time(order))
                     for order in model.orders))
-        objective_fun = weight_json["make_span"]*make_span_behaviour() 
-        + weight_json["lead_time"]*lead_time_behaviour()
-        + weight_json["operators"]*operators_behaviour()
-        + weight_json["earliness"]*earliness_behaviour()
-        + weight_json["tardiness"]*tardiness_behaviour()
+            
+        objective_fun = (weight_json["make_span"]*make_span_behaviour() 
+                         + weight_json["lead_time"]*lead_time_behaviour()
+                         + weight_json["operators"]*operators_behaviour()
+                         + weight_json["earliness"]*earliness_behaviour()
+                         + weight_json["tardiness"]*tardiness_behaviour())
         return (objective_fun)
 
     ############## SET_MODEL ###############
@@ -251,13 +253,13 @@ def create_ilp(weight_json: dict | str = {}):
                                          model.time_indices, 
                                          rule=overlap_const)
     model.locked_overlap_after_const = pyo.Constraint(model.machines, 
-                                                model.locked_opers, 
-                                                model.time_indices, 
-                                                rule=locked_overlap_after_const)
+                                                      model.locked_opers, 
+                                                      model.time_indices, 
+                                                      rule=locked_overlap_after_const)
     model.locked_overlap_before_const = pyo.Constraint(model.machines, 
-                                         model.opers, 
-                                         model.time_indices, 
-                                         rule=locked_overlap_before_const)
+                                                       model.opers, 
+                                                       model.time_indices, 
+                                                       rule=locked_overlap_before_const)
     model.precedence_const = pyo.Constraint(model.opers, 
                                             model.opers, 
                                             rule=precedence_const)
@@ -267,14 +269,14 @@ def create_ilp(weight_json: dict | str = {}):
     model.locked_prece_after_const = pyo.Constraint(model.opers, 
                                                     model.locked_opers, 
                                                     rule=locked_prece_after_const)
-    model.lowest_order_oper_const = pyo.Constraint(model.lowest,
-                                                   rule=lowest_order_oper_const)
-    model.lowest_order_locked_const = pyo.Constraint(model.lowest,
-                                                   rule=lowest_order_locked_const)
-    model.highest_order_oper_const = pyo.Constraint(model.lowest,
-                                                   rule=highest_order_oper_const)
-    model.highest_order_locked_const = pyo.Constraint(model.lowest,
-                                                   rule=highest_order_locked_const)
+    model.earliest_order_oper_const = pyo.Constraint(model.lowest,
+                                                     rule=earliest_order_oper_const)
+    model.earliest_order_locked_const = pyo.Constraint(model.lowest,
+                                                       rule=earliest_order_locked_const)
+    model.last_order_oper_const = pyo.Constraint(model.lowest,
+                                                 rule=last_order_oper_const)
+    model.last_order_locked_const = pyo.Constraint(model.lowest,
+                                                   rule=last_order_locked_const)
     return (model)
 
 def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
@@ -440,7 +442,7 @@ if (__name__ == "__main__"):
         }
     }
     
-    ilp_model = create_ilp()
+    ilp_model = instanciate_ilp_model()
     instance = run_ilp(ilp_model, test_dict)
     #instance = create_and_run_ilp("Data/Pyomo/pyo_data.dat")
     # data management

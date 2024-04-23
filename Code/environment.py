@@ -5,7 +5,7 @@ import os, json, math, random
 from datetime import datetime
 from classes import Operation, Order
 from Data_Converter.batch_data import BatchData
-from ilp import create_ilp, run_ilp
+from ilp import instanciate_ilp_model, run_ilp
 import pyomo as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
@@ -471,6 +471,17 @@ class Environment:
             for iOrd, order in enumerate(order_within):
                 order_due_dates[iOrd+1] = math.ceil(order.due_date/self.time_step_size)
             return (order_due_dates)
+        
+        def get_orders_finished_time(order_within: list["Order"]) -> dict:
+            orders_finished_time = init_dict(len(order_within))
+            for iOrd, order in enumerate(order_within):
+                opers = np.array(order.operations)
+                oper_indices = np.where(np.isin(self.schedule[1,:], opers))
+                exec_times = np.array([math.ceil(oper.execution_time/self.time_step_size)
+                                       for oper in self.schedule[1,oper_indices[0]]]) 
+                order_finished = np.max(self.schedule[2,oper_indices] + exec_times)
+                orders_finished_time[iOrd+1] = order_finished
+            return (orders_finished_time)
 
         self.mapping_unlocked_opers = [] 
         num_machines = { None: len(self.machines)}
@@ -491,6 +502,7 @@ class Environment:
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
+        orders_finished_time = get_orders_finished_time(orders_within_interval)
         print("\nSchedule: ",self.schedule)
         print("Operation exec times: ",np.array([math.ceil(oper.execution_time/self.time_step_size) 
                                        for oper in self.schedule[1,:]]))
@@ -498,11 +510,7 @@ class Environment:
         print("time_interval: ",time_interval)
         print("unlocked index: ",unlocked_opers_indices)
         print("locked index: ",locked_opers_indices)
-        print("is_final_order_in: ",is_final_order_in)
-        print("is_init_order_in: ",is_init_order_in)
-        print("is_oper_in_order: ",is_oper_in_order)
-        print("is_locked_in_order: ",is_locked_in_order)
-        print("order_due_dates: ", order_due_dates)
+        print("orders_finished_time: ", orders_finished_time)
         # print("self.schedule: ", self.schedule)
         ilp_input = {
             None: {
@@ -526,6 +534,7 @@ class Environment:
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
                 "order_due_dates" : order_due_dates,
+                "orders_finished_time" : orders_finished_time,
             }
         }
         return (ilp_input)
@@ -540,11 +549,11 @@ class Environment:
         Returns:
             UNKNOWN: The Pyomo Abstract Model used for ILP
         """
-        model = create_ilp(ilp_dict)
+        model = instanciate_ilp_model(ilp_dict)
         return (model)
 
     def objective_function_weights(self, weight: dict) -> None:
-        self.model = create_ilp(weight)
+        self.model = instanciate_ilp_model(weight)
 
     def run_ilp_instance(self, ilp_data: dict, timelimit: int | None = None) -> None:
         """Creates an instance of the abstract model and solves that instance.
