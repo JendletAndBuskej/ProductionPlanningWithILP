@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from symbol import factor
-
 def create_ilp(weight_json: dict | str = {}):
     """This function constructs an abstract ILP model of our problem.
     This constructions is done with a set of constrains and objective
