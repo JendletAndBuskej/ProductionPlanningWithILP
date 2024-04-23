@@ -448,7 +448,7 @@ if (__name__ == "__main__"):
         }
     }
     
-    ilp_model = create_ilp()
+    ilp_model = instanciate_ilp_model()
     instance = run_ilp(ilp_model, test_dict)
     #instance = create_and_run_ilp("Data/Pyomo/pyo_data.dat")
     # data management
