@@ -534,7 +534,7 @@ class Environment:
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
                 "order_due_dates" : order_due_dates,
-                "orders_finished_time" : orders_finished_time,
+                # "orders_finished_time" : orders_finished_time,
             }
         }
         return (ilp_input)
