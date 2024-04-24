@@ -4,7 +4,7 @@ from Data_Converter.batch_data import BatchData
 import json, os, math
 
 ### INITIALIZATION ###
-num_orders = 8 # roughly 3 days 
+num_orders = 16 # roughly 3 days 
 data_bank = BatchData(num_orders)
 input_json = data_bank.get_batch()
 input_json = data_bank.generate_due_dates("", [1, 1])

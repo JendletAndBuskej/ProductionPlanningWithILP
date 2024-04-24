@@ -83,6 +83,10 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                                          domain=pyo.NonNegativeIntegers)
     # model.is_order_in_time = pyo.Var(model.orders, 
                                     #  domain=pyo.Binary)
+    model.earliness = pyo.Var(model.orders, 
+                                     domain=pyo.NonNegativeIntegers)
+    # model.tardiness = pyo.Var(model.orders, 
+                                    #  domain=pyo.NonNegativeIntegers)
 
     #################### CONSTRAINTS ########################
     def duplicate_const(model, oper):
@@ -184,8 +188,9 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     def last_order_locked_const(model, order, machine, locked_oper, time_index):
         return (model.orders_finished_time[order] >= (model.is_locked_in_order[locked_oper, order] * (time_index*model.locked_schedule[machine,locked_oper,time_index] + model.locked_exec_time[locked_oper])))
 
-    # def order_in_time_const(model, order):
-        # return (model.is_order_in_time[order] <= min(1,max(0,model.orders_finished_time[order] - model.order_due_dates[order])))
+    def order_in_time_const(model, order):
+        # return (model.is_order_in_time[order] == min(1,max(0,model.orders_finished_time[order] - model.order_due_dates[order])))
+        return (model.is_order_in_time[order] <= model.orders_finished_time[order] - model.order_due_dates[order])
     
     ################ OBJECTIVE_FUNCTION ######################
     def objective(model):
@@ -214,21 +219,19 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                 return (amount + locked_amount)
             return (sum(max(calculate_operators(t) - weight_json["optimal_amount_operators"], 0) 
                         for t in model.time_indices))
-            
+    
         def earliness_behaviour():
-            return (sum(model.is_final_order_in[order]*(model.orders_finished_time[order] - model.order_due_dates[order])
+            return (sum(model.is_order_in_time[order]*model.is_final_order_in[order]*(model.orders_finished_time[order] - model.order_due_dates[order])
                         for order in model.orders))
             
         def tardiness_behaviour():
-            def calculate_max_time(order):
-                return (model.orders_finished_time[order])
-            return (sum(model.is_final_order_in[order]*max(0, model.order_due_dates[order] - calculate_max_time(order))
+            return (sum((1 - model.is_order_in_time[order])*model.is_final_order_in[order]*(model.order_due_dates[order] - model.orders_finished_time[order])
                         for order in model.orders))
             
         objective_fun = (weight_json["make_span"]*make_span_behaviour() 
                          + weight_json["lead_time"]*lead_time_behaviour()
                         #  + weight_json["operators"]*operators_behaviour()
-                        #  + weight_json["earliness"]*earliness_behaviour()
+                         + weight_json["earliness"]*earliness_behaviour()
                         #  + weight_json["tardiness"]*tardiness_behaviour()
                          )
         return (objective_fun)
@@ -281,8 +284,8 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                                                    model.locked_opers,
                                                    model.time_indices,
                                                    rule=last_order_locked_const)
-    # model.order_in_time = pyo.Constraint(model.orders,
-                                        #  rule=order_in_time_const)
+    model.order_in_time = pyo.Constraint(model.orders,
+                                         rule=order_in_time_const)
     return (model)
 
 def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
