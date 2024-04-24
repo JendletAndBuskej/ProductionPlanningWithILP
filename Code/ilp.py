@@ -176,6 +176,12 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         end_time_locked_oper = end_time_sum*precedence
         return (start_time_oper >= end_time_locked_oper)
     
+    def earlyness_help_const(model,machine, oper, time_index, order):
+        return (model.earliness[order] >= model.is_oper_in_order[oper,order]*model.assigned[machine,oper,time_index]*time_index)
+        
+    def earlyness_help_locked_const(model,machine, locked_oper, time_index, order):
+        return (model.earliness[order] >= model.is_locked_in_order[locked_oper,order]*model.previous_schedule[machine,locked_oper,time_index]*time_index)
+    
     def earliest_order_oper_const(model, order, machine, oper, time_index):
         return (model.orders_start_time[order] <= BIG_M - (model.is_oper_in_order[oper, order]*(BIG_M - time_index*model.assigned[machine,oper,time_index])))
     
@@ -221,17 +227,17 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                         for t in model.time_indices))
     
         def earliness_behaviour():
-            return (sum(model.is_order_in_time[order]*model.is_final_order_in[order]*(model.orders_finished_time[order] - model.order_due_dates[order])
+            return (sum(model.is_final_order_in[order]*model.earliness[order]
                         for order in model.orders))
             
         def tardiness_behaviour():
-            return (sum((1 - model.is_order_in_time[order])*model.is_final_order_in[order]*(model.order_due_dates[order] - model.orders_finished_time[order])
+            return (sum(model.is_final_order_in[order]*(model.order_due_dates[order] - model.orders_finished_time[order])
                         for order in model.orders))
             
         objective_fun = (weight_json["make_span"]*make_span_behaviour() 
                          + weight_json["lead_time"]*lead_time_behaviour()
                         #  + weight_json["operators"]*operators_behaviour()
-                         + weight_json["earliness"]*earliness_behaviour()
+                         + (weight_json["earliness"] + weight_json["tardiness"])*earliness_behaviour()
                         #  + weight_json["tardiness"]*tardiness_behaviour()
                          )
         return (objective_fun)
@@ -286,6 +292,16 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                                                    rule=last_order_locked_const)
     model.order_in_time = pyo.Constraint(model.orders,
                                          rule=order_in_time_const)
+    model.earlyness_help_locked_const = pyo.Constraint(model.machines, 
+                                                       model.opers, 
+                                                       model.time_indices, 
+                                                       model.orders,
+                                                       rule=earlyness_help_locked_const)
+    model.earlyness_help_const = pyo.Constraint(model.machines, 
+                                                       model.opers, 
+                                                       model.time_indices, 
+                                                       model.orders,
+                                                       rule=earlyness_help_const)
     return (model)
 
 def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
