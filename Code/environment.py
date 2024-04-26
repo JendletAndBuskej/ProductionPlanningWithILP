@@ -28,11 +28,26 @@ class Environment:
         Returns:
             dict: Machine IDS to type
         """
+        def get_valid_machine_types():
+            valid_machine_types = []
+            for iOp, operation in enumerate(self.input_json):
+                operation_valid_machine_types = self.input_json[operation]["linetype"]
+                valid_machine_types += operation_valid_machine_types
+                valid_machine_types = list(set(valid_machine_types))
+            return (valid_machine_types)
+        
+        valid_machine_types = get_valid_machine_types()
         master_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         data_path = master_path + "/Data/"
         with open(data_path+"/Parsed_Json/machines.json", "r") as f:
-            machines = json.load(f)  
-        machines = {int(key): value for key, value in machines.items()}
+            machines_json = json.load(f)  
+        all_machine_types = list(machines_json.values())
+        valid_machines = [x for x in all_machine_types if x in valid_machine_types]
+        machines = {}
+        for iMach, machine_type in enumerate(valid_machines):
+            machines[iMach] = machine_type
+        # machines = remove_redundent_machines(all_machine_types, valid_machine_types)
+        # machines = {int(key): value for key, value in machines.items()}
         return machines
             
     def initialize_operations_data(self) -> None:
@@ -47,7 +62,7 @@ class Environment:
                     if machine_type == m_type:
                         valid_machine_ids += [machine_id]
             return (valid_machine_ids)
-
+            
         operations = []
         for iOp, operation in enumerate(self.input_json):
             operation_data = self.input_json[operation]
@@ -417,7 +432,7 @@ class Environment:
             return (previous_schedule)
         
         def get_orders_within_interval() -> list["Order"]:
-            all_indicies = unlocked_opers_indices + locked_opers_indices
+            all_indicies = np.append(unlocked_opers_indices, locked_opers_indices).astype(int)
             orders_within_interval = []
             for iOper, oper in enumerate(all_indicies):
                 order = self.schedule[1,oper].order
@@ -469,7 +484,7 @@ class Environment:
         def get_order_due_dates(order_within: list["Order"]):
             order_due_dates = init_dict(len(order_within))
             for iOrd, order in enumerate(order_within):
-                order_due_dates[iOrd+1] = math.ceil(order.due_date/self.time_step_size)
+                order_due_dates[iOrd+1] = math.floor(order.due_date/self.time_step_size)
             return (order_due_dates)
         
         def get_orders_finished_time(order_within: list["Order"]) -> dict:
@@ -503,15 +518,6 @@ class Environment:
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
-        # print("\nSchedule: ",self.schedule)
-        # print("Operation exec times: ",np.array([math.ceil(oper.execution_time/self.time_step_size) 
-                                    #    for oper in self.schedule[1,:]]))
-        # print("Operation order: ",np.array([oper.order.name for oper in self.schedule[1,:]]))
-        # print("time_interval: ",time_interval)
-        # print("unlocked index: ",unlocked_opers_indices)
-        # print("locked index: ",locked_opers_indices)
-        # print("orders_finished_time: ", orders_finished_time)
-        # print("self.schedule: ", self.schedule)
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
@@ -521,7 +527,7 @@ class Environment:
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
                 "previous_schedule" : previous_schedule,
-                "precedence" : precedence,          #change name of precedence
+                "precedence" : precedence, 
                 "locked_prece_before": prece_locked_before,
                 "locked_prece_after": prece_locked_after,
                 "exec_time" : exec_time,
@@ -533,8 +539,7 @@ class Environment:
                 "is_init_order_in" : is_init_order_in,
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
-                "order_due_dates" : order_due_dates,
-                # "orders_finished_time" : orders_finished_time,
+                "order_due_dates" : order_due_dates,    
             }
         }
         return (ilp_input)
@@ -648,6 +653,23 @@ class Environment:
             machine_ticks = [f"{mtype} (ID: {mID})" for mID, mtype in zip(machine_ids, machine_types)]
             return (machine_ticks)
         
+        def get_order_and_due_date() -> dict:
+            orders_due_dates = {}
+            for iOper, oper in enumerate(self.schedule[1,:]):
+                order = oper.order
+                if not (order in orders_due_dates):
+                    finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.time_step_size)
+                    orders_due_dates[order.name] = {"due_date" : order.due_date,
+                                                    "finished_time" : finished_time,
+                                                    "final_oper" : oper}
+                oper_finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.time_step_size)
+                if (oper_finished_time >= orders_due_dates[order.name]["finished_time"]):
+                    orders_due_dates[order.name] = {"due_date" : order.due_date,
+                                                    "finished_time" : oper_finished_time,
+                                                    "final_oper" : oper}
+            return (orders_due_dates)
+        
+        order_due_dates = get_order_and_due_date()
         fig, ax = plt.subplots(figsize=(16,9))
         order_tree_dict = {}
         for operation_index in range(self.schedule.shape[1]):
@@ -662,20 +684,44 @@ class Environment:
                      color=order_color, edgecolor='black', linewidth=0.7)
             if (not hide_text):
                 plt.text(x=offset, y=machine_id, s=finished_operation_text)
-        plt.title("Gantt Scheme of Product Planing", fontsize=15)
+        plt.title("Scheduled Operations", fontsize=15)
         plt.gca().invert_yaxis()
-        ax.set_xticks(self.time_line)
         xticks_length = self.time_line.shape[0]
-        xticks = xticks_length*[""]
+        num_ticks = min(15,xticks_length)
+        xticks = num_ticks*[""]
+        dist_between_ticks = int(xticks_length/num_ticks)
+        for iTick, xtick in enumerate(xticks):
+            xticks[iTick] = self.time_line[iTick*dist_between_ticks]
+        ax.set_xticks(xticks)
         machine_ticks = get_machine_ticks()
-        # ax.set_yticks(len(self.machines)*[""])
         ax.set_yticks(np.arange(len(self.machines)))
         ax.set_yticklabels(machine_ticks, fontsize = 12)
         ax.xaxis.grid(True, alpha=0.5)
+        due_dates = [order_due_dates[order]["due_date"] for order in order_due_dates.keys()]
+        due_dates_np = np.array(due_dates)
+        order_names = [order for order in order_due_dates.keys()]
+        order_final_oper = [order_due_dates[order]["final_oper"] for order in order_due_dates.keys()]
+        due_date_duplicates = np.zeros(len(due_dates_np))
+        for iDue_date, due_date in enumerate(due_dates_np):
+            duplicate_indices = np.where(due_dates_np == due_date)[0]
+            due_date_duplicates[duplicate_indices] += 1
+        for iDue_date, due_date in enumerate(due_dates):
+            num_duplicates = due_date_duplicates[iDue_date]
+            label = order_final_oper[iDue_date].name.split("FG_")[-1]
+            final_oper_index = np.where(np.isin(self.schedule[1,:], order_final_oper[iDue_date]))[0]
+            final_oper_machine = self.schedule[0,final_oper_index]
+            ymin = final_oper_machine-2
+            ymax = final_oper_machine+2
+            order_name = order_names[iDue_date]
+            order_color = set_and_get_order_color(order_name)
+            random_offset = random.randint(-int(self.time_line[-1]), int(self.time_line[-1]))
+            random_offset /= 100
+            ax.vlines(x=due_date+random_offset, ymin=ymin, ymax=ymax, colors=order_color, 
+                      ls='--', lw=3, label=label, alpha=0.6)
+        ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left')
         if (hide_text):
             ax.xaxis.grid(False)
-            ax.set_xticklabels(xticks)
-        # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
+            ax.set_xticklabels([""])
         if save_plot:
             plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
             plot_name = datetime.now().strftime("%H_%M_%S")

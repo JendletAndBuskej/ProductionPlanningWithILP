@@ -1,10 +1,6 @@
 ########### IMPORTS #################
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory, TerminationCondition
-### IMPORTS_FOR_TEST ###
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 def instanciate_ilp_model(weight_json: dict | str = {}):
     """This function constructs an abstract ILP model of our problem.
@@ -23,9 +19,9 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
             "max_amount_operators": 10,
             "make_span": 1,
             "lead_time": 1,
-            "operators": 1,
-            "earliness": 1,
-            "tardiness": 2,
+            "operators": 0,
+            "earliness": 0,
+            "tardiness": 0,
         }
     model = pyo.AbstractModel()
     # CONSTANTS
@@ -86,8 +82,6 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     model.max_operators = pyo.Var(domain=pyo.NonNegativeIntegers)
     model.earliness = pyo.Var(model.orders, 
                               domain=pyo.NonNegativeIntegers)
-    # model.tardiness = pyo.Var(model.orders, 
-                                    #  domain=pyo.NonNegativeIntegers)
 
     #################### CONSTRAINTS ########################
     def duplicate_const(model, oper):
@@ -102,6 +96,11 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         return sum(model.assigned[machine,oper,t] 
                    for t in model.time_indices) <= valid_machine
 
+    def spill_over_const(model, oper):
+        return (sum(model.assigned[m, oper, t] * (t + model.exec_time[oper])
+                    for m in model.machines
+                    for t in model.time_indices) <= model.time_indices.at(-1))
+    
     def overlap_const(model, machine, oper, time_index):
         if (time_index == model.time_indices.at(-1)):
             return (pyo.Constraint.Skip)
@@ -112,7 +111,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         return sum(model.assigned[machine, o, t] 
                    for o in model.opers 
                    for t in time_interval) <= 1 + BIG_M*(1-locked_schedule)
-
+        
     def locked_overlap_after_const(model, machine, locked_oper, time_index):
         if (time_index == model.time_indices.at(-1)):
             return (pyo.Constraint.Skip)
@@ -216,10 +215,6 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         
     def earliness_locked_help_const(model,machine, locked_oper, time_index, order):
         return (model.earliness[order] >= model.is_locked_in_order[locked_oper,order]*model.locked_schedule[machine,locked_oper,time_index]*time_index)
-            
-    # def order_in_time_const(model, order):
-    #     # return (model.is_order_in_time[order] == min(1,max(0,model.orders_finished_time[order] - model.order_due_dates[order])))
-    #     return (model.is_order_in_time[order] <= model.orders_finished_time[order] - model.order_due_dates[order])
     
     ################ OBJECTIVE_FUNCTION ######################
     def objective(model):
@@ -233,7 +228,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
             def calculate_max_time(order):
                 return (model.is_final_order_in[order]*model.orders_finished_time[order])
             def calculate_min_time(order):
-                return (-model.is_init_order_in[order]*model.orders_start_time[order])
+                return (model.is_init_order_in[order]*model.orders_start_time[order])
             return (sum(calculate_max_time(order) - calculate_min_time(order) 
                         for order in model.orders))
             
@@ -248,7 +243,8 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
             return (sum(model.is_final_order_in[order]*(model.order_due_dates[order] - model.orders_finished_time[order])
                         for order in model.orders))
             
-        objective_fun = (weight_json["make_span"]*make_span_behaviour() 
+        objective_fun = (
+                           weight_json["make_span"]*make_span_behaviour() 
                          + weight_json["lead_time"]*lead_time_behaviour()
                          + weight_json["operators"]*operators_behaviour()
                          + (weight_json["earliness"] + weight_json["tardiness"])*earliness_behaviour()
@@ -257,12 +253,15 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         return (objective_fun)
 
     ############## SET_MODEL ###############
-    model.objective = pyo.Objective(rule=objective)
+    model.objective = pyo.Objective(rule=objective,
+                                    sense=pyo.minimize)
     model.no_duplicate = pyo.Constraint(model.opers, 
                                         rule=duplicate_const)
     model.machine_const = pyo.Constraint(model.machines, 
                                          model.opers, 
                                          rule=machine_const)
+    model.spill_over_const = pyo.Constraint(model.opers,
+                                            rule=spill_over_const) 
     model.overlap_const = pyo.Constraint(model.machines, 
                                          model.opers, 
                                          model.time_indices, 
@@ -337,200 +336,3 @@ def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
     if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
         print("Maximum time limit reached")
     return (instance)
-
-
-#####################################
-################ TEST #####################
-#####################################
-if (__name__ == "__main__"):
-    # https://readthedocs.org/projects/pyomo/downloads/pdf/stable/   
-    # SIDA 69/743 för att se hur den skrivs
-    # test_dict = {
-    #     None: {
-    #         "num_machines" : {
-    #             None: 2
-    #         },
-    #         "num_opers" : {
-    #             None: 2
-    #         },
-    #         "num_locked_opers" : {
-    #             None: 2
-    #         },
-    #         "num_time_indices" : {
-    #             None: 5
-    #         },
-    #         "valid_machines" : {
-    #             (1,1): 1,
-    #             (1,2): 1,
-    #             (2,1): 1,
-    #             (2,2): 1,
-    #         },
-    #         "exec_time" : {
-    #             1: 2,
-    #             2: 2,
-    #         },
-    #         "locked_schedule" : {
-    #             (1,1,1): 1,
-    #             (1,1,2): 0,
-    #             (1,1,3): 0,
-    #             (1,1,4): 0,
-    #             (1,1,5): 0,
-    #             (2,1,1): 0,
-    #             (2,1,2): 0,
-    #             (2,1,3): 0,
-    #             (2,1,4): 0,
-    #             (2,1,5): 0,
-    #             (1,2,1): 0,
-    #             (1,2,2): 0,
-    #             (1,2,3): 0,
-    #             (1,2,4): 0,
-    #             (1,2,5): 0,
-    #             (2,2,1): 1,
-    #             (2,2,2): 0,
-    #             (2,2,3): 0,
-    #             (2,2,4): 0,
-    #             (2,2,5): 0
-    #         },
-    #         "locked_exec_time" : {
-    #             1: 1,
-    #             2: 1,
-    #         },
-    #         "precedence" : {
-    #             (1,1): 0,
-    #             (1,2): 0,
-    #             (2,1): 0,
-    #             (2,2): 0,
-    #         },
-    #         "locked_prece_before" : {
-    #             (1,1): 1,
-    #             (1,2): 0,
-    #             (2,1): 0,
-    #             (2,2): 1,
-    #         },
-    #         "locked_prece_after" : {
-    #             (1,1): 0,
-    #             (1,2): 0,
-    #             (2,1): 0,
-    #             (2,2): 0,
-    #         }
-    #     }
-    # }
-    test_dict = {
-        None: {
-            "num_machines" : {
-                None: 2
-            },
-            "num_opers" : {
-                None: 3
-            },
-            "num_locked_opers" : {
-                None: 1
-            },
-            "num_time_indices" : {
-                None: 5
-            },
-            "valid_machines" : {
-                (1,1): 1,
-                (1,2): 1,
-                (2,1): 1,
-                (2,2): 1,
-                (3,1): 1,
-                (3,2): 1,
-            },
-            "exec_time" : {
-                1: 1,
-                2: 2,
-                3: 1,
-            },
-            "locked_schedule" : {
-                (1,1,1): 0,
-                (1,1,2): 0,
-                (1,1,3): 1,
-                (1,1,4): 0,
-                (1,1,5): 0,
-                (2,1,1): 0,
-                (2,1,2): 0,
-                (2,1,3): 0,
-                (2,1,4): 0,
-                (2,1,5): 0
-            },
-            "locked_exec_time" : {
-                1: 1
-            },
-            "precedence" : {
-                (1,1): 0,
-                (1,2): 0,
-                (1,3): 0,
-                (2,1): 0,
-                (2,2): 0,
-                (2,3): 0,
-                (3,1): 0,
-                (3,2): 0,
-                (3,3): 0,
-            },
-            "locked_prece_before" : {
-                (1,1): 0,
-                (1,2): 1,
-                (1,3): 0,
-            },
-            "locked_prece_after" : {
-                (1,1): 0,
-                (2,1): 0,
-                (3,1): 0,
-            }
-        }
-    }
-    
-    ilp_model = instanciate_ilp_model()
-    instance = run_ilp(ilp_model, test_dict)
-    #instance = create_and_run_ilp("Data/Pyomo/pyo_data.dat")
-    # data management
-    def instance_2_numpy(instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
-                         shape_array: np.ndarray | list = [] ) -> any:
-        """Converts parameters, variables or ints that starts with "instance." and has a lower dimension than 4.
-        The return will be a numpy array/matrix but just the value in the case of a single value (dimension of 0).
-        In the case of a single value the shape_array should be an empty array "[]".
-
-        Args:
-            instance_data (pyomo.Var, pyomo.Param or pyomo.set): This is your input data ex. "instance.num_machines" and should always start with "instance.".
-            shape_array (Array or np.array): This is the dimensionality of your input data ex. "[3,2,4]". What you would expect from "np.shape".
-        """
-        df = pd.DataFrame.from_dict(instance_data.extract_values(), orient='index')
-        solution_flat_matrix = df.to_numpy()
-        if len(shape_array) == 0:
-            return(solution_flat_matrix[0,0])
-        if len(shape_array) == 1:
-            return(solution_flat_matrix[:,0])
-        solution_matrix = np.empty(shape_array)
-        if len(shape_array) == 2:
-            for i in range(shape_array[0]):
-                for j in range(shape_array[1]):
-                    solution_matrix[i,j] = solution_flat_matrix[shape_array[1]*i + j,0]
-        if len(shape_array) == 3:
-            for i in range(shape_array[0]):
-                for j in range(shape_array[1]):
-                    for k in range(shape_array[2]):
-                        solution_matrix[i,j,k] = solution_flat_matrix[shape_array[1]*shape_array[2]*i + shape_array[2]*j + k,0]
-        return (solution_matrix)
-
-    instance_num_machines = instance_2_numpy(instance.num_machines)
-    instance_num_opers = instance_2_numpy(instance.num_opers)
-    instance_num_time_indices = instance_2_numpy(instance.num_time_indices)
-    instance_operation_time = instance_2_numpy(instance.exec_time, [instance_num_opers])
-    solution_shape = [instance_num_machines, instance_num_opers, instance_num_time_indices]
-    instance_solution_matrix = instance_2_numpy(instance.assigned, solution_shape)
-
-    ########### PLOT ############
-    def plot_gantt(gantt_matrix, operations_times): #exec_time?
-        fig, ax = plt.subplots()
-        gantt_dims = gantt_matrix.shape
-        for operation in range(gantt_dims[1]):
-            gantt_of_operation = gantt_matrix[:,operation,:]
-            machine, start_of_operation = np.where(gantt_of_operation == 1)
-            plt.barh(y=machine, width=operations_times[operation], left= start_of_operation + 1)#, color=team_colors[row['team']], alpha=0.4)
-        plt.title('Project Management Schedule of Project X', fontsize=15)
-        plt.gca().invert_yaxis()
-        ax.xaxis.grid(True, alpha=0.5)
-        # ax.legend(handles=patches, labels=team_colors.keys(), fontsize=11)
-        plt.show()
-    plot_gantt(instance_solution_matrix, instance_operation_time)

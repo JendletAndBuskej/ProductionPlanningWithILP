@@ -4,24 +4,83 @@ from Data_Converter.batch_data import BatchData
 import json, os, math
 
 ### INITIALIZATION ###
-num_orders = 3 # roughly 3 days 
+num_orders = 5 # roughly 3 days 
 data_bank = BatchData(num_orders)
-input_json = data_bank.get_batch()
-input_json = data_bank.generate_due_dates("", [1, 1])
-folder_path = os.path.dirname(__file__)
-# with open(folder_path+"/test1337.json", "r") as f:
-    # input_json = json.load(f)   
+# input_json = data_bank.get_batch()
+# input_json = data_bank.generate_due_dates("", [1, 1])
+# data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
+weight_json = {
+            "max_amount_operators": 10,
+            "make_span": 1,
+            "lead_time": 1,
+            "operators": 0,
+            "earliness": 0,
+            "tardiness": 0,
+        }
+project_path = os.path.dirname(os.path.dirname(__file__))
+with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
+    input_json = json.load(f)   
 env = Environment(input_json)
-env.create_ilp_model()    
+env.create_ilp_model(weight_json)    
 
 ### HELP_FUNCTIONS ###
 def compute_idle_time():
     pass
 
-# def chronological_order_of_operations():
-    # chronological_order = np.empty([2,env.schedule.shape[1]])
-    # chronological_order = np.argsort(to_sort[1])
-    
+def compress():
+    chronological_order = chronological_order_of_operations()
+    random_sequence = get_random_sequence_of_operations()
+    # t_interval_size = max(2,int(0.1*len(env.time_line)))
+    t_interval_size = max(4,int((env.time_line[-1]/env.time_step_size)/(3*current_divide)))
+    timelimit = 10
+    for oper_index in chronological_order:
+        oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
+        oper_machine = [env.schedule[0,oper_index]]
+        oper_order = [env.schedule[1,oper_index].order.id]
+        unlocked_indices, locked_indices = unlock_with_probability([0.5, 0.5],
+                                                                   1,
+                                                                   oper_time_interval,
+                                                                   oper_machine,
+                                                                   oper_order)
+        if (unlocked_indices == []):
+            continue
+        ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
+        instance_solution = env.run_ilp_instance(ilp_data)#, timelimit)
+        env.update_from_ilp_solution(instance_solution, oper_time_interval)
+    for oper_index in random_sequence:
+        oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
+        oper_machine = [env.schedule[0,oper_index]]
+        oper_order = [env.schedule[1,oper_index].order.id]
+        unlocked_indices, locked_indices = unlock_with_probability([0.5, 0.5],
+                                                                   1,
+                                                                   oper_time_interval,
+                                                                   oper_machine,
+                                                                   oper_order)
+        if (unlocked_indices == []):
+            continue
+        ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
+        instance_solution = env.run_ilp_instance(ilp_data, timelimit)
+        env.update_from_ilp_solution(instance_solution, oper_time_interval)
+    env.remove_excess_time()
+
+def chronological_order_of_operations():
+    chronological_order = np.argsort(env.schedule[2,:])
+    return (chronological_order)
+
+def get_random_sequence_of_operations():
+    random_sequence = np.arange(env.schedule.shape[1])
+    np.random.shuffle(random_sequence)
+    return (random_sequence)
+
+def centralize_time_interval_of_operation(operation_index: int, time_interval_size: int) -> list[int, int]:
+    operation_start_time = env.schedule[2,operation_index]
+    lower_time_interval = operation_start_time - int(time_interval_size/2)
+    to_shift_right = min(0,lower_time_interval)
+    lower_time_interval = operation_start_time - int(time_interval_size/2) - to_shift_right
+    upper_time_interval = operation_start_time + int(time_interval_size/2) - to_shift_right
+    centralized_time_interval = [lower_time_interval, upper_time_interval]
+    return (centralized_time_interval)
+
 def distance_weights():
     weights = np.empty([1,env.schedule.shape[1]])
     for iMachine in env.machines:
@@ -53,11 +112,8 @@ def create_weight_array():
     return (weights)
 
 def get_random_unlocking(t_interval_size: int) -> tuple[int, int, list[int,int]]:
-    num_opers = env.schedule.shape[1]
     weighted_array = create_weight_array()
-    # print("Weights: ",weighted_array)
     random_oper = np.random.choice(weighted_array, 1)[0]
-    # print("Selected: ",random_oper)
     random_oper_machine = env.schedule[0,random_oper]
     random_oper_order = env.schedule[1,random_oper].order.id
     random_oper_time_interval = get_random_time_interval(random_oper, t_interval_size)
@@ -95,76 +151,52 @@ def unlock_with_probability(
     random_prob = np.random.random()
     if (probs[0] < random_prob):
         #print("unlock_order selected")
-        unlocked_indices, locked_indices = env.unlock_order(num_entity_unlocks, t_interval)
+        unlocked_indices, locked_indices = env.unlock_order(num_entity_unlocks, t_interval,given_order)
         return (unlocked_indices, locked_indices)
     #print("unlock_machine selected")
-    unlocked_indices, locked_indices = env.unlock_machine(num_entity_unlocks, t_interval)
+    unlocked_indices, locked_indices = env.unlock_machine(num_entity_unlocks, t_interval,given_machines)
     return (unlocked_indices, locked_indices)
 
 
 ### MAIN_LOOP ###
 iRun = 1
-factor = 15
-max_runs = factor*25
+scaler = 2
+runs_factor = 8
+num_divides = 3
+max_runs = scaler*runs_factor
+current_divide = 1
 # max_runs = 2
-# env.plot(real_size=True, save_plot=True, hide_text=True)
+env.plot(real_size=True, save_plot=True, hide_text=False)
 env.divide_timeline()
 run_complete = False
 while True:
     if (iRun >= max_runs):
         break        
-    if (iRun%(factor*8)==0 and run_complete):
+    if (iRun%(scaler*runs_factor//num_divides)==0 and run_complete):
         print(f"Timeline divided, step size is {env.time_step_size}...")
         run_complete = False
         env.plot(real_size=True, save_plot=True, hide_text=False)
         env.divide_timeline()
-    max_t_interval = int(env.time_line[-1]/env.time_step_size)
-    t_interval_size = max(1,int(0.1*len(env.time_line)))
-    oper_machine, oper_order, oper_time_interval = get_random_unlocking(t_interval_size)
-    # t_interval_upper_bound = np.random.randint(t_interval_size, max_t_interval)
-    # t_interval_lower_bound = t_interval_upper_bound - t_interval_size
-    # t_interval = [t_interval_lower_bound, t_interval_upper_bound]
-    num_entity_unlocks = 1
-    unlocked_indices, locked_indices = unlock_with_probability(
-                                                               [0.25, 0.75],
-                                                               num_entity_unlocks,
-                                                               oper_time_interval,
-                                                               oper_machine,
-                                                               oper_order)
-    if (unlocked_indices == []):
-        continue
+        current_divide += 1
+    # max_t_interval = int(env.time_line[-1]/env.time_step_size)
+    # t_interval_size = max(1,int(0.1*len(env.time_line)))
+    # oper_machine, oper_order, oper_time_interval = get_random_unlocking(t_interval_size)
+    # num_entity_unlocks = 1
+    # unlocked_indices, locked_indices = unlock_with_probability([0.25, 0.75],
+    #                                                            num_entity_unlocks,
+    #                                                            oper_time_interval,
+    #                                                            oper_machine,
+    #                                                            oper_order)
+    # if (unlocked_indices == []):
+    #     continue
     
     iRun += 1
     run_complete = True
     print(f"Run {iRun-1} out of {max_runs-1}...")
-    ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
-    timelimit = 10
-    instance_solution = env.run_ilp_instance(ilp_data, timelimit)
-    env.update_from_ilp_solution(instance_solution, oper_time_interval)
-    env.remove_excess_time()
+    compress()
+    # ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
+    # timelimit = 10
+    # instance_solution = env.run_ilp_instance(ilp_data, timelimit)
+    # env.update_from_ilp_solution(instance_solution, oper_time_interval)
+    # env.remove_excess_time()
 env.plot(real_size=True, save_plot=True, hide_text=False)
-"""
-def find_latest_iteration():
-    new_iteration_of_results = 0
-    files_in_results_folder = os.listdir(results_folder)
-
-    if len(files_in_results_folder) == 0:
-        return(new_iteration_of_results)
-    
-    iterations_array = []
-    start = len(created_results_file) -4
-    for file in files_in_results_folder:
-        end = len(file) - 4
-        iterations_array.append(int(file[start:end]))
-    new_iteration_of_results = max(iterations_array) + 1
-    
-    return(new_iteration_of_results)
-
-if not os.path.exists(results_folder):
-        os.makedirs(results_folder)
-        
-    iteration_int = find_latest_iteration()
-    new_file_name = created_results_file[:-4] + str(iteration_int) + created_results_file[-4:]
-    
-    os.rename(created_results_file,results_folder + new_file_name)
-"""
