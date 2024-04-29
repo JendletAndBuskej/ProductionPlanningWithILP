@@ -67,10 +67,22 @@ class BatchData:
             self.get_order_preds(order, randomize_FG)
         return (self.batch_order_list)
 
+    def generate_batch(self, randomize_FG = False):    
+        while True:
+            # breaks when all orders have been found
+            print(self.queue)
+            if self.queue.shape[0] == 0:
+                break
+            order = self.queue[0]
+            self.queue = np.delete(self.queue,0)
+            self.get_order_preds(order, randomize_FG)
+        return (self)
+    
     def get_machines(self):
         return (self.machines)
 
-    def generate_due_dates(self, distribution: str, time_interval: list[int, int]):
+    # def generate_due_dates(self, distribution: str, time_interval: list[int, int]):
+    def generate_due_dates(self):
         total_time = sum(self.batch_order_list[oper]["operation_time"] 
                          + self.batch_order_list[oper]["startup_time"]
                          for oper in self.batch_order_list)
@@ -89,7 +101,7 @@ class BatchData:
 if __name__ == "__main__":
     batch_data = BatchData(batch_size=1)
     batched_data = batch_data.get_batch()
-    batch_data.generate_due_dates("uniform", [0,10])
+    batch_data.generate_due_dates()
     # batch_data.save_as_json(batched_data, "/Parsed_Json/batched.json")
     print(batch_data.get_machines())
 

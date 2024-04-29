@@ -15,6 +15,7 @@ class Operation:
         if parent_name == "":
             self.parent_name = None
         self.parent = None
+        self.children = []
         self.order = None
 
     def get_id(self) -> int:
@@ -35,6 +36,22 @@ class Operation:
     def get_parent(self) -> "Operation":
         return(self.parent)
     
+    def set_parent(self, all_operations: list["Operation"]):
+        for operation in all_operations:
+            if operation.name == self.parent_name:
+                self.parent = operation
+                break
+            
+    def set_children(self, children: list["Operation"]):
+        # if not isinstance(children, Operation):
+            # raise TypeError("The Operation's order variable must be of the class 'Order'")
+        self.children += children
+    
+    def set_order(self, order: "Order"):
+        if not isinstance(order, Order):
+            raise TypeError("The Operation's order variable must be of the class 'Order'")
+        self.order = order
+        
     def print_info(self):
         print(  f"Operation Name: {self.name}\n"
               + f"Operation ID: {self.id}\n"
@@ -42,20 +59,9 @@ class Operation:
               + f"Valid Machine IDs: {self.valid_machine_ids}\n"
               + f"Number of Operators: {self.num_operators}\n"
               + f"Parent: {self.parent}\n"
+              + f"Children: {self.children}\n"
               + f"Parent Name: {self.parent_name}\n")
               #+ f"Order: {self.order}\n")
-    
-    def set_parent(self, all_operations: list["Operation"]):
-        for operation in all_operations:
-            if operation.name == self.parent_name:
-                self.parent = operation
-                break
-    
-    def set_order(self, order: "Order"):
-        if not isinstance(order, Order):
-            raise TypeError("The Operation's order variable must be of the class 'Order'")
-        self.order = order
-        
 
 class Order:
     def __init__(self, id: int, name: str, operations: list["Operation"],

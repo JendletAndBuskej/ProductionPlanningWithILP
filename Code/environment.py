@@ -79,7 +79,10 @@ class Environment:
                              parent_name=parent_name)
             operations += [oper]
         for operation in operations:
-            operation.set_parent(operations)    
+            operation.set_parent(operations)
+            parent_oper = operation.parent
+            if (parent_oper):
+                parent_oper.set_children([operation]) 
         self.operations_data = operations
     
     def initialize_orders(self) -> list["Order"]:
@@ -473,7 +476,6 @@ class Environment:
             return (is_oper_in_order)
         
         def get_order_locked_oper(order_within: list["Order"]) -> dict:
-            # is_locked_in_order = init_dict(len(order_within), max(1,len(locked_opers_indices)))
             is_locked_in_order = init_dict(len(locked_opers_indices), len(order_within))
             for iOper, oper in enumerate(locked_opers_indices):
                 oper_order = self.schedule[1,oper].order
