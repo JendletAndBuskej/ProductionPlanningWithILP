@@ -341,6 +341,10 @@ class Environment:
             locked_operations_indices (list[int]): List of operation index to keep locked from schedule.
             time_interval (list[int]): Time interval to optimize over. (Currently seen as time indices)
         """
+        if (len(unlocked_opers_indices) == 0):
+            print("unlock list is empty, passing run")
+            return([])
+        
         def init_dict(dim_1: int, dim_2: int = 0, dim_3: int = 0) -> dict:
             init_dict = {}
             if dim_2 == 0 and dim_3 == 0:
@@ -398,9 +402,8 @@ class Environment:
                 prece = init_dict(len(row),len(col))
                 for i,iIdx in enumerate(row):
                     for j,jIdx in enumerate(col):
-                        prece[(i+1,j+1)] = self.precedence[iIdx,jIdx]
+                        prece[(i+1,j+1)] = self.precedence[int(iIdx),int(jIdx)]
                 return (prece)
-
             precedence = sub_precedence(unlocked_opers_indices, unlocked_opers_indices)
             prece_locked_before = sub_precedence(locked_opers_indices, unlocked_opers_indices)
             prece_locked_after = sub_precedence(unlocked_opers_indices, locked_opers_indices)
@@ -432,7 +435,8 @@ class Environment:
             return (previous_schedule)
         
         def get_orders_within_interval() -> list["Order"]:
-            all_indicies = np.append(unlocked_opers_indices, locked_opers_indices).astype(int)
+            all_indicies = np.append(unlocked_opers_indices, 
+                                     locked_opers_indices).astype(int)
             orders_within_interval = []
             for iOper, oper in enumerate(all_indicies):
                 order = self.schedule[1,oper].order
@@ -507,6 +511,7 @@ class Environment:
         previous_schedule = get_previous_schedule()
         num_locked_opers = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
+        time_index_to_real = { None: int(self.time_step_size)}
         amount_operators = get_unlocked_amount_operators()
         valid_machines, exec_time = get_valid_machines_and_exec_time()
         precedence, prece_locked_before, prece_locked_after = get_precedence()
@@ -539,7 +544,9 @@ class Environment:
                 "is_init_order_in" : is_init_order_in,
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
-                "order_due_dates" : order_due_dates,    
+                "order_due_dates" : order_due_dates,
+                "time_index_to_real" : time_index_to_real,
+                # "orders_finished_time" : orders_finished_time,
             }
         }
         return (ilp_input)
@@ -558,7 +565,7 @@ class Environment:
         return (model)
 
     def objective_function_weights(self, weight: dict) -> None:
-        self.model = instanciate_ilp_model(weight)
+        self.model = instanciate_ilp_model(weight, make_type, lead_type)
 
     def run_ilp_instance(self, ilp_data: dict, timelimit: int | None = None) -> None:
         """Creates an instance of the abstract model and solves that instance.
@@ -567,6 +574,8 @@ class Environment:
             ilp_data (dict): _description_
             timelimit (int | None, optional): _description_. Defaults to None.
         """
+        if (len(ilp_data) == 0):
+            return ([])
         solved_instance = run_ilp(self.model, ilp_data, timelimit=timelimit)
         return (solved_instance)
 
@@ -576,6 +585,9 @@ class Environment:
         Args:
             ilp_solution (UNKNOWN): the solved instance of the ilp
         """
+        if (len(ilp_solution) == 0):
+            return()
+
         def instance_2_numpy(
                 # instance_data: pyo.Var | pyo.Param | pyo.Set | pyo.RangeSet, 
                 instance_data, 
@@ -619,6 +631,150 @@ class Environment:
         solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
         update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
+
+    def get_objective_value(self, weight_json):
+        """returns objective function value and then the actual time without weights.
+
+        Args:
+            settings_json (_type_): _description_
+            weight_json (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        scaled_time_step = self.time_step_size/100000
+        balance_json = {
+            "make_span": 2*self.time_step_size/(100000*len(self.schedule[1,:])),
+            "make_span_real": self.time_step_size/100000,
+            "lead_time": self.time_step_size/(100000*len(self.orders)),
+            "lead_time_fake": self.time_step_size/(100000*len(self.schedule[1,:])),
+            "operators": 1,
+            "fake_operators": 1/len(self.time_line),
+            "earliness": self.time_step_size/(100000*len(self.orders)),
+            "tardiness": self.time_step_size/(100000*len(self.orders)),
+        }
+        def make_span_real():
+            start_time = 0
+            end_time = 0
+            for i in range(len(self.schedule[2,:])):
+                exec_time = np.ceil(self.schedule[1,i].execution_time/self.time_step_size)
+                time = self.schedule[2,i] + exec_time
+                if (time > end_time):
+                    end_time = time
+            weighted = (end_time-start_time)*weight_json["make_span"]*balance_json["make_span_real"]
+            return (weighted, (end_time-start_time))
+        
+        def make_span():
+            start_time = np.zeros([len(self.schedule[2,:])])
+            end_time = np.zeros([len(self.schedule[2,:])])
+            for i in range(len(self.schedule[2,:])):
+                exec_time = np.ceil(self.schedule[1,i].execution_time/self.time_step_size)
+                end_time[i] = self.schedule[2,i] + exec_time
+            cum_sum = np.sum(end_time-start_time)
+            weighted = cum_sum*weight_json["make_span"]*balance_json["make_span"]
+            return (weighted, cum_sum)
+
+        def lead_time():
+            order_lead_time = np.zeros([len(self.orders)])
+            for iOrder, order in enumerate(self.orders):
+                opers = np.array(order.operations)
+                oper_indices = np.where(np.isin(self.schedule[1,:],opers))[0]
+                order_start_time = np.min(self.schedule[2,oper_indices])
+                order_end_time = 0
+                for oper in oper_indices:
+                    oper_exec_time = np.ceil(self.schedule[1,oper].execution_time/self.time_step_size)
+                    oper_end_time = self.schedule[2,oper] + oper_exec_time
+                    if (oper_end_time > order_end_time):
+                        order_end_time = oper_end_time
+                order_lead_time[iOrder] = (order_end_time - order_start_time)
+                weighted = order_lead_time*weight_json["lead_time"]*balance_json["lead_time"]
+            return(weighted, order_lead_time)
+
+        def operators():
+            operators_per_time = np.zeros([len(self.time_line)])
+            for time_index in range(len(self.time_line)):
+                for iOper, oper in enumerate(self.schedule[1,:]):
+                    oper_exec = np.ceil(oper.execution_time/self.time_step_size)
+                    oper_end_time = self.schedule[2,iOper] + oper_exec
+                    oper_start_time = self.schedule[2,iOper]
+                    if (time_index >= oper_start_time and time_index < oper_end_time):
+                        operators_per_time[time_index] += oper.num_operators
+            operator_diff = (operators_per_time 
+                             - weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
+            operator_diff = np.where(operator_diff < 0, 0, operator_diff)
+            weighted = operator_diff*weight_json["operators"]*balance_json["operators"]
+            return(weighted ,operators_per_time)
+        
+        def operators_fake():
+            operators_per_time = np.zeros([len(self.time_line)])
+            for time_index in range(len(self.time_line)):
+                for iOper, oper in enumerate(self.schedule[1,:]):
+                    oper_exec = np.ceil(oper.execution_time/self.time_step_size)
+                    oper_end_time = self.schedule[2,iOper] + oper_exec
+                    oper_start_time = self.schedule[2,iOper]
+                    if (time_index >= oper_start_time and time_index < oper_end_time):
+                        operators_per_time[time_index] += oper.num_operators
+            operator_diff = (operators_per_time 
+                             - weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
+            operator_diff = np.where(operator_diff < 0, 0, operator_diff)
+            weighted = operator_diff*weight_json["fake_operators"]*balance_json["fake_operators"]
+            return(weighted ,operators_per_time)
+
+        def earliness_and_tardiness():
+            #is due date ceil, floor or just int. I used ceil
+            """returns earliness, tardiness and last how late in time every order is.
+
+            Returns:
+                _type_: _description_
+            """
+            order_due_date = np.zeros(len(self.orders))
+            fg_time = np.zeros(len(self.orders))
+            for iOrder, order in enumerate(self.orders):
+                for oper in order.operations:
+                    if (oper.parent == None):
+                        idx = np.where(np.isin(self.schedule[1,:], oper))[0]
+                        order_due_date[iOrder] = np.ceil(order.due_date/self.time_step_size)
+                        oper_exec = np.ceil(oper.execution_time/self.time_step_size)
+                        fg_time[iOrder] = self.schedule[2,idx] + oper_exec
+                        break
+            delta_time = order_due_date - fg_time
+            earl_per_order = np.zeros(len(self.orders))
+            tard_per_order = np.zeros(len(self.orders))
+            for iDelta, delta in enumerate(delta_time):
+                if (delta < 0):
+                    earl_per_order[iDelta] = -weight_json["earliness"]*balance_json["earliness"]*delta
+                else:
+                    tard_per_order[iDelta] = weight_json["tardiness"]*balance_json["tardiness"]*delta
+            return (earl_per_order, tard_per_order, delta_time)
+
+        objective_value_short = {
+            "total_value": (make_span()[0] 
+                            + sum(lead_time()[0]) 
+                            + sum(operators()[0])
+                            + sum(earliness_and_tardiness()[0])
+                            + sum(earliness_and_tardiness()[1])),
+            "make_span": make_span()[0],
+            "lead_time": sum(lead_time()[0]),
+            "operators": max(operators()[0]),
+            "operators_fake": sum(operators_fake()[0]),
+            "earliness": sum(earliness_and_tardiness()[0]),
+            "tardiness": sum(earliness_and_tardiness()[1]),
+        }
+        objective_value_long = {
+            "make_span": make_span()[0],
+            "lead_time": lead_time()[0],
+            "operators": operators()[0],
+            "earliness": earliness_and_tardiness()[0],
+            "tardiness": earliness_and_tardiness()[1],
+        }
+        behavior_long = {
+            "make_span": make_span()[1],
+            "lead_time": lead_time()[1],
+            "operators": operators()[1],
+            "earliness and tardiness": earliness_and_tardiness()[2],
+        }
+        return (objective_value_short, objective_value_long, behavior_long)
+
 
     def plot(self, real_size = True, save_plot = False, hide_text = False) -> None:
         """Plots the scheme

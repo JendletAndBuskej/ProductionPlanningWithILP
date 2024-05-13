@@ -5,29 +5,124 @@ import os, json, math, random
 from classes import Operation, Order
 from environment import Environment
 from Data_Converter.batch_data import BatchData
-from ilp import create_ilp, run_ilp
+from ilp import instanciate_ilp_model, run_ilp
 import pyomo as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
+import time
 
 ########## PARAMETERS #############
-iter_per_size = 2
-size_steps = 2
+size_steps = 1
+iter_per_size =  np.ones([size_steps])
+iter_per_size[0] = 1
 num_orders = 10
 num_machines = 35
-max_permutations = math.comb(num_machines*28,10)
 num_machine_unlock_amount = 1
 num_order_unlock_amount = 1
-
-schedule_length = 0
+weight_json = {
+            "max_amount_operators": 4,
+            "make_span": 1,
+            "lead_time": 1, 
+            "operators": 10,
+            "fake_operators": 10,
+            "earliness": 0,
+            "tardiness": 0,
+        }
 
 ####### INITIALIZE ########
+schedule_length = 0
 data_bank = BatchData(num_orders)
 input_json = data_bank.get_batch()
-env = Environment(input_json)
+input_json = data_bank.generate_due_dates("",[1,1])
+#data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
+with open("/home/buske/Progress/ProductionPlanningWithILP/Data/Parsed_Json/batched_same_operator.json") as f:
+    input_json = json.load(f)
+env = Environment(input_json, weight_json)
+time_length = math.ceil(len(env.time_line))
+total_loops = int(2*sum(iter_per_size))
+loops_count = 0
+
+init_obj_value = env.get_objective_value(weight_json)
+env.plot()
 
 
 ###### HELP_FUNCTIONS #######
+def CalculateComplexity(nr_time_steps, nr_unlock_oper):
+    """Calculates if the complexity of the planned unlocked ILP is smaller or greater than a good reference.
+    This returns true if the reference has a lower complexity and false otherwise. nr_time_steps_good_test and 
+    nr_oper_good_test is used to calculate the good reference value.
+
+    Args:
+        nr_time_steps (int): this is the planed amount of unlocked time steps.
+        nr_unlock_oper (int): this is the planed amount of unlocked operations.
+    """
+    nr_time_steps_good_test = 28
+    nr_oper_good_test = 7
+    max_permutations = math.factorial(nr_oper_good_test)*math.comb(num_machines*nr_time_steps_good_test, nr_oper_good_test)
+
+    possibilities = (math.factorial(nr_unlock_oper) + nr_unlock_oper)*math.comb(num_machines*nr_time_steps,nr_unlock_oper)
+    if (possibilities > max_permutations):
+        return(True)
+    return(False)
+
+def run_t_interval(type, env, type_list, t_interval):
+    sub_run_counter = 0
+    t_interval2 = [t_interval[0], t_interval[1]]
+    if (type == "machine"):
+        nr_types = num_machines
+    elif (type == "order"):
+        nr_types = num_orders
+    else:
+        print("not a valid type")
+        return()
+    while (t_interval2[0] != t_interval2[1]):
+        nr_time_steps = int(t_interval2[1] - t_interval2[0])
+        unlock, lock = env.unlock(0, t_interval2, type, type_list)
+        if not (CalculateComplexity(nr_time_steps, len(unlock))):
+            if (sub_run_counter > 0):
+                print("       sub run: "  + str(sub_run_counter + 1))
+            if (len(unlock) == 0):
+                return()
+            dict = env.to_ilp(unlock, lock, t_interval2)
+            instance = env.run_ilp_instance(dict)
+            env.update_from_ilp_solution(instance, t_interval2)
+            return ()
+        if (sub_run_counter == 0):
+            print("       split time axis: ")
+        time_cut = int(t_interval2[0])
+        step_length = int(nr_time_steps)
+        for i in range(nr_time_steps):
+            step_length = int(np.floor(step_length/2))
+            if (step_length <= 0):
+                while(CalculateComplexity(nr_time_steps, len(unlock))):
+                    time_cut += 1
+                    nr_time_steps = int(t_interval2[1] - time_cut)
+                    unlock, lock = env.unlock(0, [time_cut, t_interval2[1]], type, type_list)
+                sub_run_counter += 1
+                print("       sub run: " + str(sub_run_counter))
+                print("time_interval: " + str(t_interval2[1]) + "," + str(time_cut))
+                break
+            nr_time_steps = int(t_interval2[1] - time_cut)
+            unlock, lock = env.unlock(0, [time_cut, t_interval2[1]], type, type_list)
+            if not (CalculateComplexity(nr_time_steps, len(unlock))):
+                time_cut -= step_length
+            else:
+                time_cut += step_length
+            time_cut = int(time_cut)
+        unlock, lock = env.unlock(0 , [time_cut, t_interval2[1]], type, type_list)
+        if (len(unlock) == 0):
+            unlock, lock = env.unlock(0, t_interval2, type, type_list)
+            RunSemiBatch(env, unlock, lock, t_interval2)
+            print("deadlock saved")
+            return(0)
+        if (nr_time_steps <= 1):
+            print("trying to unlock to many operations at one time, skipping this iteration and continues")
+            return()
+        dict = env.to_ilp(unlock, lock, [time_cut, t_interval2[1]])
+        instance = env.run_ilp_instance(dict)
+        env.update_from_ilp_solution(instance, [time_cut, t_interval2[1]])
+        t_interval2[1] = int(np.floor((t_interval2[1] - time_cut)/2) + time_cut)
+
 def RunSemiBatch(env, unlock, lock, t_interval):
     """this calculates if the complexity of the planned ILP run is to big and if so it will run multiple smaller
     ILP solves to get a resonable run time.
@@ -38,23 +133,6 @@ def RunSemiBatch(env, unlock, lock, t_interval):
         lock (_type_): _description_
         t_interval (_type_): _description_
     """
-    def CalculateComplexity(nr_time_steps, nr_unlock):
-        """Calculates if the complexity of the planned unlocked ILP is smaller or greater than a good reference.
-        This returns true if the reference has a lower complexity and false otherwise. nr_time_steps_good_test and 
-        nr_oper_good_test is used to calculate the good reference value.
-
-        Args:
-            nr_time_steps (int): this is the planed amount of unlocked time steps.
-            nr_unlock (int): this is the planed amount of unlocked operations.
-        """
-        nr_time_steps_good_test = 28
-        nr_oper_good_test = 9
-        max_permutations = nr_oper_good_test*math.comb(num_machines*nr_time_steps_good_test, nr_oper_good_test)
-
-        possibilities = nr_oper_good_test*math.comb(num_machines*nr_time_steps,nr_unlock)
-        if (possibilities > max_permutations):
-            return(True)
-        return(False)
 
     unlock = np.array(unlock)
     nr_time_steps = t_interval[1] - t_interval[0]
@@ -95,18 +173,13 @@ def RunSemiBatch(env, unlock, lock, t_interval):
                 done_matrix[i,j] = 1
         sub_batch = unlock[chosen_idx]
         locked_part = np.setdiff1d(unlock, sub_batch)
-        locked_part = np.append(locked_part, lock)
+        if (len(lock) > 0):
+            locked_part = np.append(locked_part, lock)
         dict = env.to_ilp(sub_batch, locked_part, t_interval)
         instance = env.run_ilp_instance(dict)
         env.update_from_ilp_solution(instance, t_interval)
 
-def Compression():
-    """This will compress the schedule to make the upcoming ILP runs faster
-    by removing some of the empty space at the end of the schedule.
-    """
-    pass
-
-def RunGroup(type, nr_unlock, env, t_interval):
+def RunGroup(type, nr_unlock, env, t_interval, is_time_based=True):
     """This runs all orders or machines in random order and can
     be grouped together if nr_unlock is not 1. it will also cut the 
     time at the end.
@@ -138,31 +211,66 @@ def RunGroup(type, nr_unlock, env, t_interval):
             run = np.append(run, shuffled_type[idx])
         runs_list.append(run)
     # runs
-    for i_run in runs_list:
-        print("run: " + str(i_run))
-        unlock, lock = env.unlock(nr_unlock, t_interval, type, i_run)
-        if(len(unlock) == 0):
-            continue
-        RunSemiBatch(env, unlock, lock, t_interval)
+    for iRun, run in enumerate(runs_list):
+        run_start_time = time.time()
+        if (is_time_based):
+            run_t_interval(type, env, run, t_interval)
+        else:
+            unlock, lock = env.unlock(nr_unlock, t_interval, type, run)
+            if(len(unlock) == 0):
+                continue
+            RunSemiBatch(env, unlock, lock, t_interval)
+        print("     run: " + str(iRun + 1) + "/" + str(len(runs_list)) 
+                  + "    " + time_to_string(run_start_time))
     env.remove_excess_time()
 
+def print_progress(loops_count, total_loops):
+    loops_count += 1
+    print("############ Main Loop: " + str(loops_count) 
+        + "/" + str(total_loops) + " ############")
+    return (loops_count)
+
+def time_to_string(start_time):
+    time_value = time.time() - start_time
+    time_value = np.ceil(10*time_value)/10
+    string = str(time_value) + "s"
+    return (string)
 
 ######## MAIN #########
-for i_size in range(size_steps):
-    if (i_size != 0):
+# for i_size in range(size_steps):
+#     if (i_size != 0):
+#         env.divide_timeline(1)
+#     time_length = math.ceil(len(env.time_line)/(i_size + 1))
+#     nr_time_axises = 2*(i_size + 1)
+#     if (i_size ==  0):
+#         nr_time_axises = 1
+#     for j_axis in range(nr_time_axises):
+#         #some while catch done loop
+#         t_interval = [time_length*j_axis, 
+#                       time_length*(j_axis + 1) + 1]
+#         if ((time_length + 1)*j_axis > time_length):
+#             break
+#         for iter in range(iter_per_size):
+#             print("Main Loop: " + str(i_size + 1) + "/" + str(total_iterations))
+#             RunGroup("order", 1, env, t_interval)
+#             RunGroup("machine", 1, env, t_interval)
+main_start_time = time.time()
+for iSize in range(size_steps):
+    if (iSize != 0):
         env.divide_timeline(1)
-    time_length = math.ceil(len(env.time_line)/(i_size + 1))
-    nr_time_axises = 2*(i_size + 1)
-    if (i_size ==  0):
-        nr_time_axises = 1
-    for j_axis in range(nr_time_axises):
-        #some while catch done loop
-        t_interval = [time_length*j_axis, 
-                      time_length*(j_axis + 1)]
-        print(t_interval)
-        if ((time_length + 1)*j_axis > time_length):
-            break
+    nr_time_axises = math.ceil(len(env.time_line))
+    t_interval = [0, nr_time_axises]
+    for jIter in range(int(iter_per_size[iSize])):
+        loops_count = print_progress(loops_count, total_loops)
         RunGroup("order", 1, env, t_interval)
-        RunGroup("machine", 1, env, t_interval)
+        loops_count = print_progress(loops_count, total_loops)
+        RunGroup("order", int(np.ceil(num_orders/2)), env, t_interval)
+print("Total Run Time: " + time_to_string(main_start_time))
 
+############ Plot ############
+final_obj_value = env.get_objective_value(weight_json)
+print("initial objective value:")
+print(init_obj_value[0])
+print("final objective value:")
+print(final_obj_value[0])
 env.plot(True)
