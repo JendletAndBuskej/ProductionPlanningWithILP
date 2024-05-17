@@ -19,7 +19,8 @@ class Scheduler:
             input_json = json.load(f)
         if (num_orders):
             data_bank = BatchData(num_orders)
-            input_json = data_bank.generate_batch().generate_due_dates()
+            input_json = data_bank.generate_batch().generate_due_dates(1000000, 2/3)
+            data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
         self.env = Environment(input_json)
         self.env.create_ilp_model(weight_json)
     
@@ -74,11 +75,12 @@ class Scheduler:
         random_sequence = get_random_sequence_of_operations()
         t_interval_size = max(4,int((self.env.time_line[-1]/self.env.time_step_size)/(3*self.current_divide)))
         timelimit = 10
+        print(f"Num operations is {chronological_order.shape[0]}, the expected max time is {timelimit*2*chronological_order.shape[0]}.")
         for oper_index in chronological_order:
             oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
             oper_machine = [self.env.schedule[0,oper_index]]
             oper_order = [self.env.schedule[1,oper_index].order.id]
-            unlocked_indices, locked_indices = self.unlock_with_probability([0.5, 0.5],
+            unlocked_indices, locked_indices = self.unlock_with_probability([0.15, 0.85],
                                                                             oper_time_interval,
                                                                             oper_machine,
                                                                             oper_order,
@@ -86,13 +88,17 @@ class Scheduler:
             if (unlocked_indices == []):
                 continue
             ilp_data = self.env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
-            instance_solution = self.env.run_ilp_instance(ilp_data)#, timelimit)
+            # instance_solution = self.env.run_ilp_instance(ilp_data)
+            start_time = timeit.default_timer() 
+            instance_solution = self.env.run_ilp_instance(ilp_data, timelimit)
+            finished_time = timeit.default_timer()
+            print("Time of a chrono run: ",finished_time - start_time)
             self.env.update_from_ilp_solution(instance_solution, oper_time_interval)
         for oper_index in random_sequence:
             oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
             oper_machine = [self.env.schedule[0,oper_index]]
             oper_order = [self.env.schedule[1,oper_index].order.id]
-            unlocked_indices, locked_indices = self.unlock_with_probability([0.5, 0.5],
+            unlocked_indices, locked_indices = self.unlock_with_probability([0.15, 0.85],
                                                                             oper_time_interval,
                                                                             oper_machine,
                                                                             oper_order,
@@ -100,7 +106,10 @@ class Scheduler:
             if (unlocked_indices == []):
                 continue
             ilp_data = self.env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
+            start_time = timeit.default_timer() 
             instance_solution = self.env.run_ilp_instance(ilp_data, timelimit)
+            finished_time = timeit.default_timer()
+            print("Time of a random run: ",finished_time - start_time)
             self.env.update_from_ilp_solution(instance_solution, oper_time_interval)
         self.env.remove_excess_time()
     
@@ -109,9 +118,11 @@ class Scheduler:
         max_runs = scaler*runs_factor
         self.current_divide = 1
         self.env.plot(real_size=True, save_plot=True, hide_text=False)
+        # print("Returning in schedule and skipping compress to skip ctrl-c")
+        # return
         self.env.divide_timeline()
-        compress_start_time = timeit.default_timer()
-        while True:
+        compress_start_time = timeit.default_timer() 
+        while True: 
             if (iRun >= max_runs): break        
             if (iRun%(scaler*runs_factor//num_divides)==0):
                 print(f"Timeline divided, step size is {self.env.time_step_size}...")
@@ -123,13 +134,16 @@ class Scheduler:
             self.compress()
         compress_finished_time = timeit.default_timer()
         self.env.plot(real_size=True, save_plot=True, hide_text=False)
+        self.env.schedule_to_csv()
         print(compress_finished_time - compress_start_time)
         return (self)
     
     def compute_theoretical_max(self) -> int:
-        print("theoretical_best_makespan: ",self.theoretical_best_makespan())
-        print("theoretical_best_makespan_due_date: ",self.theoretical_best_makespan_due_date())
-        print("theoretical_best_lead_time: ",self.theoretical_best_lead_time())
+        print("theoretical_best_makespan: ", self.theoretical_best_makespan())
+        print("theoretical_best_makespan_due_date: ", self.theoretical_best_makespan_due_date())
+        print("theoretical_best_lead_time: ", self.theoretical_best_lead_time())
+        print("theoretical_best_num_operators: ", self.theoretical_best_num_operators())
+        print("theoretical_best_due_dates: ", self.theoretical_best_due_dates())
     
     def theoretical_best_makespan(self) -> int:
         total_time = 0
@@ -145,14 +159,16 @@ class Scheduler:
         last_due_date = math.floor(np.amax(orders_due_dates)/self.env.time_step_size)
         return (last_due_date)
         
-    def theoretical_best_lead_time(self) -> int:
-        def traverse_child(parent, current_lead_time: float):
-            children = parent.children
-            current_lead_time = current_lead_time + parent.execution_time
-            if (current_lead_time >= self.lead_time):
-                self.lead_time = current_lead_time
+    def theoretical_best_lead_time(self) -> np.ndarray:
+        def traverse_child(operation, current_lead_time: float):
+            children = operation.children
+            current_best_lead_time = current_lead_time + operation.execution_time
+            if (not children):
+                if (current_best_lead_time > self.lead_time):
+                    self.lead_time = current_best_lead_time
+                    return
             for child in children:
-                traverse_child(child, current_lead_time)
+                traverse_child(child, current_best_lead_time)
             
         orders_best_lead_time = np.empty([2,len(self.env.orders)], dtype=object)
         orders_best_lead_time[0,:] = np.array(self.env.orders)
@@ -163,31 +179,23 @@ class Scheduler:
             final_oper_of_order = self.env.schedule[1,final_oper_of_order_index]
             children = final_oper_of_order.children
             self.lead_time = 0
-            current_lead_time = 0
+            current_lead_time = final_oper_of_order.execution_time
             for child in children:
                 traverse_child(child, current_lead_time)
             orders_best_lead_time[1,iOrder] = self.lead_time
-        for i in range(orders_best_lead_time.shape[1]):
-            print(orders_best_lead_time[0,i].name, orders_best_lead_time[1,i])
-                
-            # def TraverseTree(order, currentTime, currentDepth):
-                # global bestTime, depth
-                # currentBestTime = currentTime + orders[order]["time"]
-                # currentDepth += 1
-# 
-                # if orders[order]["predList"] == []:
-                    # if currentBestTime > bestTime:
-                        # bestTime = currentBestTime
-                        # depth = currentDepth
-                        # return
-# 
-                # for pred in orders[order]["predList"]:
-                    # TraverseTree(pred, currentBestTime, currentDepth)
-        
+        return (orders_best_lead_time)                
+    
+    def theoretical_best_num_operators(self) -> int:
+        return 0
+    
+    def theoretical_best_due_dates(self) -> int:
+        return 0
+    
 if __name__ == "__main__":
+    # scheduler = Scheduler(num_orders=8)
     scheduler = Scheduler()
-    scheduler.compute_theoretical_max()
-    # scheduler.schedule(scaler=2,runs_factor=2,num_divides=3)
+    # scheduler.compute_theoretical_max()
+    scheduler.schedule(scaler=2,runs_factor=2,num_divides=3)
 ### INITIALIZATION ###
 # num_orders = 5 # roughly 3 days 
 # data_bank = BatchData(num_orders)

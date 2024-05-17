@@ -5,7 +5,7 @@ import os, json, math, random
 from classes import Operation, Order
 from environment import Environment
 from Data_Converter.batch_data import BatchData
-from ilp import create_ilp, run_ilp
+from ilp import instanciate_ilp_model, run_ilp
 import pyomo as pyo
 from pyomo.opt import SolverFactory
 import pandas as pd
@@ -62,7 +62,7 @@ def RunSemiBatch(env, unlock, lock, t_interval):
     too_big = CalculateComplexity(nr_time_steps, nr_unlock)
     if not (too_big):
         dict = env.to_ilp(unlock, lock, t_interval)
-        instance = env.run_ilp_instance(dict)
+        instance = env.run_ilp_instance(dict,timelimit=10)
         env.update_from_ilp_solution(instance, t_interval)
         return()
     preferred_unlock_amount = nr_unlock
@@ -97,7 +97,7 @@ def RunSemiBatch(env, unlock, lock, t_interval):
         locked_part = np.setdiff1d(unlock, sub_batch)
         locked_part = np.append(locked_part, lock)
         dict = env.to_ilp(sub_batch, locked_part, t_interval)
-        instance = env.run_ilp_instance(dict)
+        instance = env.run_ilp_instance(dict,timelimit=10)
         env.update_from_ilp_solution(instance, t_interval)
 
 def Compression():

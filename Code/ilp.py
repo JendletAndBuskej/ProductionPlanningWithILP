@@ -73,14 +73,17 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                             #  domain=pyo.Binary) 
                              domain=pyo.Binary, 
                              initialize=model.previous_schedule)
-    model.orders_start_time = pyo.Var(model.orders, 
+    model.orders_start_time = pyo.Var(model.orders,
+                                      bounds=(0,model.num_time_indices),
                                       domain=pyo.NonNegativeIntegers)
     model.orders_finished_time = pyo.Var(model.orders, 
+                                         bounds=(0,model.num_time_indices),
                                          domain=pyo.NonNegativeIntegers)
     model.is_order_in_time = pyo.Var(model.orders, 
                                      domain=pyo.Binary)
     model.max_operators = pyo.Var(domain=pyo.NonNegativeIntegers)
     model.earliness = pyo.Var(model.orders, 
+                              bounds=(0,model.num_time_indices),
                               domain=pyo.NonNegativeIntegers)
 
     #################### CONSTRAINTS ########################
@@ -327,12 +330,11 @@ def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
         timelimit (int | None, optional): The time limit of the solution. Defaults to no time limit.
     """
     instance = model.create_instance(ilp_data)
-    opt = SolverFactory("glpk")
+    solver = SolverFactory("glpk")
     if (timelimit is None):
-        opt.solve(instance)
+        solver.solve(instance, tee=False)
         return (instance)
-    results = opt.solve(instance)#, timelimit=timelimit)
-    opt.options["TimeLimit"] = timelimit
-    if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
-        print("Maximum time limit reached")
+    solver.options['tmlim'] = timelimit
+    results = solver.solve(instance, tee=False)
+    # results = solver.solve(instance, timelimit=timelimit)
     return (instance)
