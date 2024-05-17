@@ -22,12 +22,12 @@ num_machine_unlock_amount = 1
 num_order_unlock_amount = 1
 weight_json = {
             "max_amount_operators": 4,
-            "make_span": 0,
+            "make_span": 1,
             "lead_time": 1,
-            "operators": 0,
-            "fake_operators": 0,
-            "earliness": 0,
-            "tardiness": 0,
+            "operators": 100,
+            "fake_operators": 100,
+            "earliness": 1,
+            "tardiness": 2,
         }
 
 ####### INITIALIZE ########
@@ -42,7 +42,6 @@ env = Environment(input_json, weight_json)
 time_length = math.ceil(len(env.time_line))
 total_loops = int(2*sum(iter_per_size))
 loops_count = 0
-old_run_ob_val = 10000000000000000
 
 init_obj_value = env.get_objective_value(weight_json)
 env.plot()
@@ -59,7 +58,7 @@ def CalculateComplexity(nr_time_steps, nr_unlock_oper):
         nr_unlock_oper (int): this is the planed amount of unlocked operations.
     """
     nr_time_steps_good_test = 28
-    nr_oper_good_test = 7
+    nr_oper_good_test = 70
     max_permutations = math.factorial(nr_oper_good_test)*math.comb(num_machines*nr_time_steps_good_test, nr_oper_good_test)
 
     possibilities = (math.factorial(nr_unlock_oper) + nr_unlock_oper)*math.comb(num_machines*nr_time_steps,nr_unlock_oper)
@@ -290,7 +289,7 @@ for iSize in range(size_steps):
     
     for jIter in range(int(iter_per_size[iSize])):
         loops_count = print_progress(loops_count, total_loops)
-        RunGroup("order", 1, env, t_interval)
+        RunGroup("order", 2, env, t_interval)
         loops_count = print_progress(loops_count, total_loops)
         RunGroup("order", int(1), env, t_interval)
 print("Total Run Time: " + time_to_string(main_start_time))
