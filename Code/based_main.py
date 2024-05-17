@@ -13,6 +13,7 @@ import time
 
 ########## PARAMETERS #############
 size_steps = 1
+t_max = None
 iter_per_size =  np.ones([size_steps])
 iter_per_size[0] = 1
 num_orders = 10
@@ -21,10 +22,10 @@ num_machine_unlock_amount = 1
 num_order_unlock_amount = 1
 weight_json = {
             "max_amount_operators": 4,
-            "make_span": 1,
-            "lead_time": 1, 
-            "operators": 10,
-            "fake_operators": 10,
+            "make_span": 0,
+            "lead_time": 0, 
+            "operators": 1,
+            "fake_operators": 1,
             "earliness": 0,
             "tardiness": 0,
         }
@@ -41,6 +42,7 @@ env = Environment(input_json, weight_json)
 time_length = math.ceil(len(env.time_line))
 total_loops = int(2*sum(iter_per_size))
 loops_count = 0
+old_run_ob_val = 10000000000000000
 
 init_obj_value = env.get_objective_value(weight_json)
 env.plot()
@@ -66,6 +68,10 @@ def CalculateComplexity(nr_time_steps, nr_unlock_oper):
     return(False)
 
 def run_t_interval(type, env, type_list, t_interval):
+    obj_value = env.get_objective_value(weight_json)
+    env.plot(real_size = True, save_plot = True)
+
+    print(obj_value[0])
     sub_run_counter = 0
     t_interval2 = [t_interval[0], t_interval[1]]
     if (type == "machine"):
@@ -84,8 +90,10 @@ def run_t_interval(type, env, type_list, t_interval):
             if (len(unlock) == 0):
                 return()
             dict = env.to_ilp(unlock, lock, t_interval2)
-            instance = env.run_ilp_instance(dict)
+            csv_save(True, unlock, lock, env)
+            instance = env.run_ilp_instance(dict, timelimit=t_max)
             env.update_from_ilp_solution(instance, t_interval2)
+            csv_save(False, unlock, lock, env)
             return ()
         if (sub_run_counter == 0):
             print("       split time axis: ")
@@ -119,7 +127,7 @@ def run_t_interval(type, env, type_list, t_interval):
             print("trying to unlock to many operations at one time, skipping this iteration and continues")
             return()
         dict = env.to_ilp(unlock, lock, [time_cut, t_interval2[1]])
-        instance = env.run_ilp_instance(dict)
+        instance = env.run_ilp_instance(dict, timelimit=t_max)
         env.update_from_ilp_solution(instance, [time_cut, t_interval2[1]])
         t_interval2[1] = int(np.floor((t_interval2[1] - time_cut)/2) + time_cut)
 
@@ -140,7 +148,7 @@ def RunSemiBatch(env, unlock, lock, t_interval):
     too_big = CalculateComplexity(nr_time_steps, nr_unlock)
     if not (too_big):
         dict = env.to_ilp(unlock, lock, t_interval)
-        instance = env.run_ilp_instance(dict)
+        instance = env.run_ilp_instance(dict, timelimit=t_max)
         env.update_from_ilp_solution(instance, t_interval)
         return()
     preferred_unlock_amount = nr_unlock
@@ -176,7 +184,7 @@ def RunSemiBatch(env, unlock, lock, t_interval):
         if (len(lock) > 0):
             locked_part = np.append(locked_part, lock)
         dict = env.to_ilp(sub_batch, locked_part, t_interval)
-        instance = env.run_ilp_instance(dict)
+        instance = env.run_ilp_instance(dict, timelimit=t_max)
         env.update_from_ilp_solution(instance, t_interval)
 
 def RunGroup(type, nr_unlock, env, t_interval, is_time_based=True):
@@ -222,7 +230,7 @@ def RunGroup(type, nr_unlock, env, t_interval, is_time_based=True):
             RunSemiBatch(env, unlock, lock, t_interval)
         print("     run: " + str(iRun + 1) + "/" + str(len(runs_list)) 
                   + "    " + time_to_string(run_start_time))
-    env.remove_excess_time()
+    #env.remove_excess_time()
 
 def print_progress(loops_count, total_loops):
     loops_count += 1
@@ -235,6 +243,25 @@ def time_to_string(start_time):
     time_value = np.ceil(10*time_value)/10
     string = str(time_value) + "s"
     return (string)
+
+def csv_save(is_data_new, unlock, lock, env):
+    schedule = env.schedule
+    np_save = np.zeros([4,len(schedule[1,:])])
+    for i in range(len(schedule[1,:])):
+        np_save[0,i] = schedule[0,i]
+        np_save[1,i] = i
+        np_save[2,i] = schedule[2,i]
+    for i in unlock:
+        np_save[3,i] = 1
+    for i in lock:
+        np_save[3,i] = -1
+    df = pd.DataFrame(np_save)
+    if (is_data_new):
+        df.to_csv("/home/buske/Progress/ProductionPlanningWithILP/Data/new.csv")
+    else:
+        df.to_csv("/home/buske/Progress/ProductionPlanningWithILP/Data/old.csv")
+
+    
 
 ######## MAIN #########
 # for i_size in range(size_steps):
@@ -258,14 +285,16 @@ main_start_time = time.time()
 for iSize in range(size_steps):
     if (iSize != 0):
         env.divide_timeline(1)
-    nr_time_axises = math.ceil(len(env.time_line))
+    nr_time_axises = len(env.time_line)
     t_interval = [0, nr_time_axises]
+    
     for jIter in range(int(iter_per_size[iSize])):
         loops_count = print_progress(loops_count, total_loops)
         RunGroup("order", 1, env, t_interval)
         loops_count = print_progress(loops_count, total_loops)
-        RunGroup("order", int(np.ceil(num_orders/2)), env, t_interval)
+        RunGroup("order", int(1), env, t_interval)
 print("Total Run Time: " + time_to_string(main_start_time))
+
 
 ############ Plot ############
 final_obj_value = env.get_objective_value(weight_json)

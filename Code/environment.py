@@ -21,6 +21,7 @@ class Environment:
         self.longest_oper = self.time_line[1] - self.time_line[0]
         self.precedence = self.initialize_precedence()
         self.model = self.create_ilp_model(weight_json)
+        self.weight_json = weight_json
     
     ### INITIALIZATION ###
     def initialize_machines(self):
@@ -212,6 +213,27 @@ class Environment:
             precedence_index = np.where(operation_list == precedence_operation)
             precedence[iOp,precedence_index] = 1
         return (precedence)
+    
+    def get_balance_weight(self):
+        """this will calculate the weights to be used in the ilp, to make it consequent when dividing time line
+
+        Returns:
+            _type_: _description_
+        """
+        print("                                                 timeline len:")
+        print(self.time_line.shape)
+        scaled_time_step = self.time_step_size/100000
+        balance_json = {
+        "make_span": 2*scaled_time_step/(len(self.schedule[1,:])),
+        "make_span_real": scaled_time_step,
+        "lead_time": scaled_time_step/(len(self.orders)),
+        "lead_time_fake": 2*scaled_time_step/(len(self.schedule[1,:])),
+        "operators": 10/self.weight_json["max_amount_operators"],
+        "fake_operators": 1/len(self.time_line),
+        "earliness": scaled_time_step/(len(self.orders)),
+        "tardiness": scaled_time_step/(len(self.orders)),
+        }
+        return (balance_json)
     
     ### SCHEDULE_UNLOCKING ###
     def unlock_order(
@@ -523,6 +545,7 @@ class Environment:
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
+        balance_json = self.get_balance_weight()
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
@@ -545,7 +568,14 @@ class Environment:
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
                 "order_due_dates" : order_due_dates,
-                "time_index_to_real" : time_index_to_real,
+                "balance_make_span" : { None: balance_json["make_span"] },
+                "balance_make_real" : { None: balance_json["make_span_real"] },
+                "balance_lead_time" : { None: balance_json["lead_time"] },
+                "balance_lead_fake" : { None: balance_json["lead_time_fake"] },
+                "balance_operator" : { None: balance_json["operators"] },
+                "balance_operator_fake" : { None: balance_json["fake_operators"] },
+                "balance_earliness" : { None: balance_json["earliness"] },
+                "balance_tardiness" : { None: balance_json["tardiness"] },
                 # "orders_finished_time" : orders_finished_time,
             }
         }
@@ -642,17 +672,7 @@ class Environment:
         Returns:
             _type_: _description_
         """
-        scaled_time_step = self.time_step_size/100000
-        balance_json = {
-            "make_span": 2*self.time_step_size/(100000*len(self.schedule[1,:])),
-            "make_span_real": self.time_step_size/100000,
-            "lead_time": self.time_step_size/(100000*len(self.orders)),
-            "lead_time_fake": self.time_step_size/(100000*len(self.schedule[1,:])),
-            "operators": 1,
-            "fake_operators": 1/len(self.time_line),
-            "earliness": self.time_step_size/(100000*len(self.orders)),
-            "tardiness": self.time_step_size/(100000*len(self.orders)),
-        }
+        balance_json = self.get_balance_weight()
         def make_span_real():
             start_time = 0
             end_time = 0
@@ -665,14 +685,15 @@ class Environment:
             return (weighted, (end_time-start_time))
         
         def make_span():
-            start_time = np.zeros([len(self.schedule[2,:])])
-            end_time = np.zeros([len(self.schedule[2,:])])
-            for i in range(len(self.schedule[2,:])):
-                exec_time = np.ceil(self.schedule[1,i].execution_time/self.time_step_size)
-                end_time[i] = self.schedule[2,i] + exec_time
-            cum_sum = np.sum(end_time-start_time)
-            weighted = cum_sum*weight_json["make_span"]*balance_json["make_span"]
-            return (weighted, cum_sum)
+            return(np.sum(self.schedule[2,:])*weight_json["make_span"]*balance_json["make_span"],np.sum(self.schedule[2,:]))
+            # start_time = np.zeros([len(self.schedule[2,:])])
+            # end_time = np.zeros([len(self.schedule[2,:])])
+            # for i in range(len(self.schedule[2,:])):
+            #     exec_time = np.ceil(self.schedule[1,i].execution_time/self.time_step_size)
+            #     end_time[i] = self.schedule[2,i] #+ exec_time
+            # cum_sum = np.sum(end_time)- np.sum(start_time)
+            # weighted = cum_sum*weight_json["make_span"]*balance_json["make_span"]
+            # return (weighted, cum_sum)
 
         def lead_time():
             order_lead_time = np.zeros([len(self.orders)])
@@ -687,7 +708,7 @@ class Environment:
                     if (oper_end_time > order_end_time):
                         order_end_time = oper_end_time
                 order_lead_time[iOrder] = (order_end_time - order_start_time)
-                weighted = order_lead_time*weight_json["lead_time"]*balance_json["lead_time"]
+            weighted = order_lead_time*weight_json["lead_time"]*balance_json["lead_time"]
             return(weighted, order_lead_time)
 
         def operators():
@@ -746,11 +767,11 @@ class Environment:
                 else:
                     tard_per_order[iDelta] = weight_json["tardiness"]*balance_json["tardiness"]*delta
             return (earl_per_order, tard_per_order, delta_time)
-
         objective_value_short = {
             "total_value": (make_span()[0] 
                             + sum(lead_time()[0]) 
-                            + sum(operators()[0])
+                            + max(operators()[0])
+                            + sum(operators_fake()[0])
                             + sum(earliness_and_tardiness()[0])
                             + sum(earliness_and_tardiness()[1])),
             "make_span": make_span()[0],

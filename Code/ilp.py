@@ -14,15 +14,15 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     Returns:
         pyo.AbstractModel: an abstract ILP model.
     """
-    if (len(weight_json) == 0):
-        weight_json = {
-            "max_amount_operators": 4,
-            "make_span": 1,
-            "lead_time": 1,
-            "operators": 1,
-            "earliness": 0,
-            "tardiness": 0,
-        }
+    # if (len(weight_json) == 0):
+    #     weight_json = {
+    #         "max_amount_operators": 4,
+    #         "make_span": 1,
+    #         "lead_time": 1,
+    #         "operators": 1,
+    #         "earliness": 0,
+    #         "tardiness": 0,
+    #     }
     model = pyo.AbstractModel()
     # CONSTANTS
     BIG_M = 10000
@@ -32,6 +32,15 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_orders = pyo.Param(within=pyo.NonNegativeIntegers)
     model.time_index_to_real = pyo.Param(within=pyo.NonNegativeIntegers)
+        #balance_json
+    model.balance_make_span = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_make_real = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_lead_time = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_lead_fake = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_operator = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_operator_fake = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_earliness = pyo.Param(within=pyo.NonNegativeReals)
+    model.balance_tardiness = pyo.Param(within=pyo.NonNegativeReals)
     # RANGES
     model.machines = pyo.RangeSet(1, model.num_machines)
     model.opers = pyo.RangeSet(1, model.num_opers)
@@ -109,7 +118,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     def overlap_const(model, machine, oper, time_index):
         start_interval = min(time_index, model.time_indices.at(-2))
         end_interval = min(model.exec_time[oper] + time_index, model.time_indices.at(-1))
-        time_interval = range(start_interval, end_interval + 1) 
+        time_interval = range(start_interval, end_interval) 
         locked_schedule = model.assigned[machine, oper, time_index]      
         return sum(model.assigned[machine, o, t] 
                    for o in model.opers 
@@ -119,7 +128,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         start_interval = min(time_index, model.time_indices.at(-2))
         end_interval = min(model.locked_exec_time[locked_oper] 
                            + time_index, model.time_indices.at(-1))
-        time_interval = range(start_interval, end_interval + 1) 
+        time_interval = range(start_interval, end_interval) 
         locked = model.locked_schedule[machine, locked_oper, time_index]
         return sum(model.assigned[machine, o, t] 
                    for o in model.opers 
@@ -129,7 +138,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         start_interval = min(time_index, model.time_indices.at(-2))
         end_interval = min(model.exec_time[oper] 
                             + time_index, model.time_indices.at(-1))
-        time_interval = range(start_interval, end_interval + 1) 
+        time_interval = range(start_interval, end_interval) 
         unlocked = model.assigned[machine, oper, time_index]
         return sum(model.locked_schedule[machine, o, t] 
                     for o in model.locked_opers 
@@ -213,12 +222,12 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         def get_time_interval(oper, time_index):
             start_interval = max(time_index - model.exec_time[oper], model.time_indices.at(1))
             end_interval = time_index
-            time_interval = range(start_interval, end_interval) 
+            time_interval = range(start_interval, end_interval + 1) 
             return (time_interval)
         def get_locked_time_interval(oper, time_index):
             start_interval = max(time_index - model.locked_exec_time[oper], model.time_indices.at(1))
             end_interval = time_index
-            time_interval = range(start_interval, end_interval) 
+            time_interval = range(start_interval, end_interval + 1) 
             return (time_interval)
 
         amount = sum(model.assigned[m, o, t]*model.amount_operators[o] 
@@ -248,22 +257,25 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     ################ OBJECTIVE_FUNCTION ######################
     def objective(model):
         balance_json = {
-            "make_span": 2*model.time_index_to_real/(100000*(model.num_opers + model.num_locked_opers)),
-            "make_span_real": model.time_index_to_real/100000,
-            "lead_time": model.time_index_to_real/(100000*model.num_orders),
-            "lead_time_fake": model.time_index_to_real/(100000*(model.num_opers + model.num_locked_opers)),
-            "operators": 1/2,
-            "fake_operators": 1/model.num_time_indices/2,
-            "earliness": model.time_index_to_real/(100000*model.num_orders),
-            "tardiness": model.time_index_to_real/(100000*model.num_orders),
+            "make_span": model.balance_make_span,
+            "make_span_real": model.balance_make_real,
+            "lead_time": model.balance_lead_time,
+            "lead_time_fake": model.balance_lead_fake,
+            "operators": model.balance_operator,
+            "fake_operators": model.balance_operator_fake,
+            "earliness": model.balance_earliness,
+            "tardiness": model.balance_tardiness,
         }
 
         def make_span_behaviour():
-            return (balance_json["make_span"]*sum(t * model.assigned[m, o, t]  
+            # return (balance_json["make_span"]*sum(t * model.assigned[m, o, t]  
+            #            for m in model.machines 
+            #            for o in model.opers 
+            #            for t in model.time_indices))
+            return (sum((t + 1) * model.assigned[m, o, t]  
                        for m in model.machines 
                        for o in model.opers 
                        for t in model.time_indices))
-        
         def make_span_real_behaviour():
             #needs to set last_time_const(time_indeces)
             return (balance_json["make_span_real"]*model.is_final_oper_in*model.last_time)
@@ -380,10 +392,10 @@ def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
     instance = model.create_instance(ilp_data)
     opt = SolverFactory("glpk")
     if (timelimit is None):
-        opt.solve(instance)
+        opt.solve(instance, tee=False)
         return (instance)
-    results = opt.solve(instance)#, timelimit=timelimit)
-    opt.options["TimeLimit"] = timelimit
+    opt.options["tmlim"] = timelimit
+    results = opt.solve(instance, tee=False)
     if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
         print("Maximum time limit reached")
     return (instance)
