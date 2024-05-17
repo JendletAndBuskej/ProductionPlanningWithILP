@@ -1,6 +1,7 @@
 ############## IMPORT ################
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import colors as mcolors
 import os, json, math, random
 from datetime import datetime
 from classes import Operation, Order
@@ -80,7 +81,10 @@ class Environment:
                              parent_name=parent_name)
             operations += [oper]
         for operation in operations:
-            operation.set_parent(operations)    
+            operation.set_parent(operations)
+            parent_oper = operation.parent
+            if (parent_oper):
+                parent_oper.set_children([operation]) 
         self.operations_data = operations
     
     def initialize_orders(self) -> list["Order"]:
@@ -499,7 +503,6 @@ class Environment:
             return (is_oper_in_order)
         
         def get_order_locked_oper(order_within: list["Order"]) -> dict:
-            # is_locked_in_order = init_dict(len(order_within), max(1,len(locked_opers_indices)))
             is_locked_in_order = init_dict(len(locked_opers_indices), len(order_within))
             for iOper, oper in enumerate(locked_opers_indices):
                 oper_order = self.schedule[1,oper].order
@@ -810,12 +813,14 @@ class Environment:
             t_interval (list[int], optional): The time interval to plot within. Default is the
                                               entire interval.
         """
-        def set_and_get_order_color(order_tree: str) -> tuple[float,float,float,float]:
+        def set_and_get_order_color(order_tree: str, seed: int) -> tuple[float,float,float,float]:
             if not order_tree in order_tree_dict:
+                random.seed(seed)
                 random_red = random.random()
                 random_green = random.random()
                 random_blue = random.random()
                 order_tree_dict[order_tree] = (random_red, random_green, random_blue, 1)
+            random.seed(None)
             return order_tree_dict[order_tree]
         
         def get_operation_text(operation: "Operation") -> str:
@@ -846,33 +851,55 @@ class Environment:
                                                     "final_oper" : oper}
             return (orders_due_dates)
         
+        plt.clf(), plt.cla(), plt.close()
         order_due_dates = get_order_and_due_date()
         fig, ax = plt.subplots(figsize=(16,9))
         order_tree_dict = {}
+        num_seed = 42
         for operation_index in range(self.schedule.shape[1]):
             machine_id = self.schedule[0,operation_index]
             operation = self.schedule[1,operation_index]
             start_time = self.schedule[2,operation_index]
             exec_time = self.time_step_size + (real_size)*(operation.execution_time - self.time_step_size)
             offset = start_time*self.time_step_size
-            order_color = set_and_get_order_color(operation.order.name)
+            order_color = set_and_get_order_color(operation.order.name, seed=num_seed)
             finished_operation_text = get_operation_text(operation)
             plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, 
                      color=order_color, edgecolor='black', linewidth=0.7)
             if (not hide_text):
-                plt.text(x=offset, y=machine_id, s=finished_operation_text)
-        plt.title("Scheduled Operations", fontsize=15)
+                plt.text(x=offset, y=machine_id+0.3, s=finished_operation_text)
+            num_seed += 1
+        plt.title("Scheduled Operations", fontsize=20)
+        ax.set_xlabel(" Time", fontsize=16)
+        ax.set_ylabel("Machines", fontsize=16)
         plt.gca().invert_yaxis()
-        xticks_length = self.time_line.shape[0]
-        num_ticks = min(15,xticks_length)
-        xticks = num_ticks*[""]
-        dist_between_ticks = int(xticks_length/num_ticks)
-        for iTick, xtick in enumerate(xticks):
-            xticks[iTick] = self.time_line[iTick*dist_between_ticks]
+        num_ticks = 15
+        end_of_time_line = self.time_line[-1]
+        time_line_increament = end_of_time_line/num_ticks
+        xticks = time_line_increament*np.arange(num_ticks)
         ax.set_xticks(xticks)
         machine_ticks = get_machine_ticks()
         ax.set_yticks(np.arange(len(self.machines)))
         ax.set_yticklabels(machine_ticks, fontsize = 12)
+        machine_colors = ["linen", "lavender"]
+        # machine_colors = ["thistle", "paleturquoise"]
+        machine_color = machine_colors[0]
+        # colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
+        # by_hsv = sorted((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(color)[:3])), name)
+                        # for name, color in colors.items())
+        # valid_machine_colors = [name for hsv, name in by_hsv[7*len(by_hsv)//8:]]
+        previous_machine_type = ""
+        new_ytick = []
+        for ytick in ax.get_yticklabels():
+            current_machine_type = ytick.get_text().split(" ")[0]
+            new_ytick += [ytick.get_text().split("(")[1].split(")")[0]]
+            if (current_machine_type != previous_machine_type):
+                new_ytick[-1] = ytick.get_text().replace("(", "").replace(")", "")
+                previous_machine_type = current_machine_type
+                # machine_color = random.choice(valid_machine_colors)
+                machine_color = next(item for item in machine_colors if item != machine_color)
+            ytick.set_backgroundcolor(machine_color)
+        ax.set_yticklabels(new_ytick, fontsize = 12)
         ax.xaxis.grid(True, alpha=0.5)
         due_dates = [order_due_dates[order]["due_date"] for order in order_due_dates.keys()]
         due_dates_np = np.array(due_dates)
@@ -882,6 +909,7 @@ class Environment:
         for iDue_date, due_date in enumerate(due_dates_np):
             duplicate_indices = np.where(due_dates_np == due_date)[0]
             due_date_duplicates[duplicate_indices] += 1
+        num_seed = 42
         for iDue_date, due_date in enumerate(due_dates):
             num_duplicates = due_date_duplicates[iDue_date]
             label = order_final_oper[iDue_date].name.split("FG_")[-1]
@@ -890,11 +918,12 @@ class Environment:
             ymin = final_oper_machine-2
             ymax = final_oper_machine+2
             order_name = order_names[iDue_date]
-            order_color = set_and_get_order_color(order_name)
+            order_color = set_and_get_order_color(order_name, seed=num_seed)
             random_offset = random.randint(-int(self.time_line[-1]), int(self.time_line[-1]))
             random_offset /= 100
             ax.vlines(x=due_date+random_offset, ymin=ymin, ymax=ymax, colors=order_color, 
                       ls='--', lw=3, label=label, alpha=0.6)
+            num_seed += 1
         ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left')
         if (hide_text):
             ax.xaxis.grid(False)
@@ -903,11 +932,27 @@ class Environment:
             plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
             plot_name = datetime.now().strftime("%H_%M_%S")
             plt.savefig(plot_path+plot_name+".png")
-            plt.clf()
-            plt.cla()
-            plt.close()
             return
         plt.show()
-        plt.clf()
-        plt.cla()
-        plt.close()
+        
+    def schedule_to_csv(self) -> None:
+        schedule_np = np.empty([5,self.schedule.shape[1]], dtype=object)
+        cols = []
+        for operation_index in range(self.schedule.shape[1]):
+            operation = self.schedule[1,operation_index]
+            oper_name = operation.name
+            order = operation.order.id
+            machine_id = self.schedule[0,operation_index]
+            start_time = self.schedule[2,operation_index] * self.time_step_size
+            finished_time = start_time + operation.execution_time
+            schedule_np[0,operation_index] = oper_name
+            schedule_np[1,operation_index] = machine_id
+            schedule_np[2,operation_index] = start_time
+            schedule_np[3,operation_index] = finished_time
+            schedule_np[4,operation_index] = order
+            cols += ["Oper_"+str(operation_index)]
+        schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID"])
+        csv_path = os.path.dirname(os.path.abspath(__file__))+"/CSV/"
+        if not os.path.exists(csv_path):
+            os.makedirs(csv_path)
+        schedule_pd.to_csv(csv_path+"schedule.csv", index=True, sep="\t", encoding="utf-8")

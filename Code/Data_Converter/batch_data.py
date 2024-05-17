@@ -67,19 +67,41 @@ class BatchData:
             self.get_order_preds(order, randomize_FG)
         return (self.batch_order_list)
 
+    def generate_batch(self, randomize_FG = False):    
+        while True:
+            # breaks when all orders have been found
+            if self.queue.shape[0] == 0:
+                break
+            order = self.queue[0]
+            self.queue = np.delete(self.queue,0)
+            self.get_order_preds(order, randomize_FG)
+        return (self)
+    
     def get_machines(self):
         return (self.machines)
 
-    def generate_due_dates(self, distribution: str, time_interval: list[int, int]):
-        total_time = sum(self.batch_order_list[oper]["operation_time"] 
-                         + self.batch_order_list[oper]["startup_time"]
-                         for oper in self.batch_order_list)
-        num_orders_per_due_date_unit = 2
-        due_dates_size = total_time/(num_orders_per_due_date_unit*len(self.selected_orders))
-        due_dates = np.arange(1, len(self.selected_orders)/num_orders_per_due_date_unit + 1)
-        due_dates = due_dates_size * np.repeat(due_dates, num_orders_per_due_date_unit)  
+    # def generate_due_dates(self, distribution: str, time_interval: list[int, int]):
+    def generate_due_dates(self, max_time_initial_schedule: float, sparsity: float):
+        """This is hardcoded since due dates should be provided in a given dataset if they are to be considered
+        """
+        # total_time = sum(self.batch_order_list[oper]["operation_time"] 
+                        #  + self.batch_order_list[oper]["startup_time"]
+                        #  for oper in self.batch_order_list)
+        # num_orders_per_due_date_unit = 2
+        # due_dates_size = total_time/(num_orders_per_due_date_unit*len(self.selected_orders))
+        # due_dates = np.arange(1, len(self.selected_orders)/num_orders_per_due_date_unit + 1)
+        # due_dates = due_dates_size * np.repeat(due_dates, num_orders_per_due_date_unit)  
+        # for iOrd, order in enumerate(self.selected_orders):
+            # self.batch_order_list[order]["due_date"] = due_dates[iOrd]
+        last_due_date = sparsity*max_time_initial_schedule
+        distance_between = last_due_date/self.selected_orders.shape[0]
+        current_due_date = last_due_date + distance_between
         for iOrd, order in enumerate(self.selected_orders):
-            self.batch_order_list[order]["due_date"] = due_dates[iOrd]
+            random_offset = np.random.normal(0.0, 0.01*distance_between) 
+            print("\n",random_offset)
+            current_due_date -= distance_between + random_offset
+            print(current_due_date)
+            self.batch_order_list[order]["due_date"] = current_due_date
         return (self.batch_order_list)
     
     def save_as_json(self, data, path):
@@ -89,7 +111,7 @@ class BatchData:
 if __name__ == "__main__":
     batch_data = BatchData(batch_size=1)
     batched_data = batch_data.get_batch()
-    batch_data.generate_due_dates("uniform", [0,10])
+    batch_data.generate_due_dates()
     # batch_data.save_as_json(batched_data, "/Parsed_Json/batched.json")
     print(batch_data.get_machines())
 
