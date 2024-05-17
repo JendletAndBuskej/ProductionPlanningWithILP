@@ -598,7 +598,7 @@ class Environment:
         return (model)
 
     def objective_function_weights(self, weight: dict) -> None:
-        self.model = instanciate_ilp_model(weight, make_type, lead_type)
+        self.model = instanciate_ilp_model(weight)
 
     def run_ilp_instance(self, ilp_data: dict, timelimit: int | None = None) -> None:
         """Creates an instance of the abstract model and solves that instance.
