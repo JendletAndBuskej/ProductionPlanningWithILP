@@ -63,42 +63,82 @@ class GreedyScheduler:
         if not (parent):
             return
         parent_index = np.where(np.isin(self.oper_num_childs[0,:], parent))
-        
+        self.operations_precedence_time[0,parent_index] = end_time
     
-    def get_earliest_machine_id(self, machine_types: list[str]) -> int:
-        def id_earliest_machine_mtype(machine_type: str) -> int:
-            machine_ids = [machine.id for machine in self.machines if machine.m_type == machine_type]
-            if (not machine_ids):
-                raise ValueError("Machine type passed doesn't exist.")
-            earliest_time = self.machines[machine_ids[0]].max_time
-            earliest_machine_id = machine_ids[0]
-            for machine_id in machine_ids:
-                machine_max_time = self.machines[machine_id].max_time
-                if (machine_max_time < earliest_time):
-                    earliest_time = machine_max_time
-                    earliest_machine_id = machine_id
-            return (earliest_machine_id)
-        
-        id_earliest_per_mtype = []
-        for machine_type in machine_types:
-            id_earliest_per_mtype += [id_earliest_machine_mtype(machine_type)]
-        earliest_time = self.machines[id_earliest_per_mtype[0]].max_time
-        earliest_machine_id = id_earliest_per_mtype[0]
-        for machine_id in id_earliest_per_mtype:
+    # def get_earliest_machine_id(self, machine_types: list[str]) -> int:
+        # def id_earliest_machine_mtype(machine_type: str) -> int:
+            # machine_ids = [machine.id for machine in self.machines if machine.m_type == machine_type]
+            # if (not machine_ids):
+                # raise ValueError("Machine type passed doesn't exist.")
+            # earliest_time = self.machines[machine_ids[0]].max_time
+            # earliest_machine_id = machine_ids[0]
+            # for machine_id in machine_ids:
+                # machine_max_time = self.machines[machine_id].max_time
+                # if (machine_max_time < earliest_time):
+                    # earliest_time = machine_max_time
+                    # earliest_machine_id = machine_id
+            # return (earliest_machine_id)
+        # 
+        # id_earliest_per_mtype = []
+        # for machine_type in machine_types:
+            # id_earliest_per_mtype += [id_earliest_machine_mtype(machine_type)]
+        # earliest_time = self.machines[id_earliest_per_mtype[0]].max_time
+        # earliest_machine_id = id_earliest_per_mtype[0]
+        # for machine_id in id_earliest_per_mtype:
+            # machine_max_time = self.machines[machine_id].max_time
+            # if (machine_max_time < earliest_time):
+                # earliest_time = machine_max_time
+                # earliest_machine_id = machine_id
+        # return (earliest_machine_id)
+
+    def get_earliest_machine_id(self, machine_ids: list[int], precedence_time: float) -> int:
+        # def id_earliest_machine_mtype(machine_type: str) -> int:
+        # machine_ids = [machine.id for machine in self.machines if machine.m_type == machine_type]
+        # if (not machine_ids):
+        #     raise ValueError("Machine type passed doesn't exist.")
+        earliest_time = self.machines[machine_ids[0]].max_time
+        earliest_machine_id = machine_ids[0]
+        for machine_id in machine_ids:
             machine_max_time = self.machines[machine_id].max_time
             if (machine_max_time < earliest_time):
                 earliest_time = machine_max_time
                 earliest_machine_id = machine_id
         return (earliest_machine_id)
-
+        
+        # id_earliest_per_mtype = []
+        # for machine_type in machine_types:
+            # id_earliest_per_mtype += [id_earliest_machine_mtype(machine_type)]
+        # earliest_time = self.machines[id_earliest_per_mtype[0]].max_time
+        # earliest_machine_id = id_earliest_per_mtype[0]
+        # for machine_id in id_earliest_per_mtype:
+            # machine_max_time = self.machines[machine_id].max_time
+            # if (machine_max_time < earliest_time):
+                # earliest_time = machine_max_time
+                # earliest_machine_id = machine_id
+        # return (earliest_machine_id)
+    
     def make_span_scheduling(self):
-        print(self.selection_mask)
         while True:
             if not (np.any(self.selection_mask)): break
             prio_selections = self.due_date_prio*self.selection_mask
             print(prio_selections)
-            selected_operation = np.argmax(prio_selections)
-            print(selected_operation)
+            valid_operations = np.where(prio_selections == np.amax(prio_selections))[1]
+            valid_operations_precedence_time = self.operations_precedence_time[0,valid_operations]
+            selected_operation_index = valid_operations[np.argmin(valid_operations_precedence_time)]
+            selected_operation = self.operations[selected_operation_index]
+            selected_operation_mIDS = selected_operation.valid_machine_ids
+            selected_operation_precedence_time = self.operations_precedence_time[0,selected_operation_index]
+            print("selected_operation: ",selected_operation.name)
+            print("selected_operation_mIDS: ",selected_operation_mIDS)
+            selected_machine_id = self.get_earliest_machine_id(selected_operation_mIDS)
+            print("selected_machine_id: ",selected_machine_id)
+            selected_machine = self.machines[selected_machine_id]
+            print("selected_machine: ",selected_machine)
+            operation_start_time = selected_machine.max_time
+            operation_end_time = operation_start_time + selected_operation.execution_time
+            print("operation_start_time: ",operation_start_time)
+            print("CHANGE TO CLOSEST TO PRECEDENCE?")
+            break
             
                 
 if __name__ == "__main__":

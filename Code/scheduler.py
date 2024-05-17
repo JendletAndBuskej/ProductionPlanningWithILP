@@ -117,9 +117,9 @@ class Scheduler:
         iRun = 1
         max_runs = scaler*runs_factor
         self.current_divide = 1
-        self.env.plot(real_size=True, save_plot=True, hide_text=False)
-        # print("Returning in schedule and skipping compress to skip ctrl-c")
-        # return
+        self.env.plot(real_size=True, save_plot=False, hide_text=False)
+        print("Returning in schedule and skipping compress to skip ctrl-c")
+        return
         self.env.divide_timeline()
         compress_start_time = timeit.default_timer() 
         while True: 

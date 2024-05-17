@@ -873,21 +873,23 @@ class Environment:
         ax.set_xlabel(" Time", fontsize=16)
         ax.set_ylabel("Machines", fontsize=16)
         plt.gca().invert_yaxis()
-        num_ticks = 15
-        end_of_time_line = self.time_line[-1]
-        time_line_increament = end_of_time_line/num_ticks
-        xticks = time_line_increament*np.arange(num_ticks)
+        
+        preferred_ticks = 15
+        num_ticks = min(preferred_ticks,self.time_line.shape[0])
+        tick_distances = math.ceil(self.time_line.shape[0]/num_ticks)
+        actual_num_ticks = (self.time_line.shape[0]+1)//tick_distances
+        xticks = np.arange(actual_num_ticks)
+        for iXtick, xtick in enumerate(self.time_line):
+            if (iXtick%tick_distances==0):
+               xticks[iXtick//tick_distances] = xtick 
         ax.set_xticks(xticks)
+        xlim_upper = self.time_line[-1]
+        ax.set_xlim([0, xlim_upper])
         machine_ticks = get_machine_ticks()
         ax.set_yticks(np.arange(len(self.machines)))
         ax.set_yticklabels(machine_ticks, fontsize = 12)
         machine_colors = ["linen", "lavender"]
-        # machine_colors = ["thistle", "paleturquoise"]
         machine_color = machine_colors[0]
-        # colors = dict(mcolors.BASE_COLORS, **mcolors.CSS4_COLORS)
-        # by_hsv = sorted((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(color)[:3])), name)
-                        # for name, color in colors.items())
-        # valid_machine_colors = [name for hsv, name in by_hsv[7*len(by_hsv)//8:]]
         previous_machine_type = ""
         new_ytick = []
         for ytick in ax.get_yticklabels():
@@ -896,7 +898,6 @@ class Environment:
             if (current_machine_type != previous_machine_type):
                 new_ytick[-1] = ytick.get_text().replace("(", "").replace(")", "")
                 previous_machine_type = current_machine_type
-                # machine_color = random.choice(valid_machine_colors)
                 machine_color = next(item for item in machine_colors if item != machine_color)
             ytick.set_backgroundcolor(machine_color)
         ax.set_yticklabels(new_ytick, fontsize = 12)
@@ -921,7 +922,8 @@ class Environment:
             order_color = set_and_get_order_color(order_name, seed=num_seed)
             random_offset = random.randint(-int(self.time_line[-1]), int(self.time_line[-1]))
             random_offset /= 100
-            ax.vlines(x=due_date+random_offset, ymin=ymin, ymax=ymax, colors=order_color, 
+            # ax.vlines(x=due_date+random_offset, ymin=ymin, ymax=ymax, colors=order_color, 
+            ax.vlines(x=due_date, ymin=ymin, ymax=ymax, colors=order_color, 
                       ls='--', lw=3, label=label, alpha=0.6)
             num_seed += 1
         ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left')
