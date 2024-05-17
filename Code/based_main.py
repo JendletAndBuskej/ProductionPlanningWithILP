@@ -13,7 +13,7 @@ import time
 
 ########## PARAMETERS #############
 size_steps = 1
-t_max = None
+t_max = 60
 iter_per_size =  np.ones([size_steps])
 iter_per_size[0] = 1
 num_orders = 10
@@ -23,18 +23,18 @@ num_order_unlock_amount = 1
 weight_json = {
             "max_amount_operators": 4,
             "make_span": 0,
-            "lead_time": 0, 
-            "operators": 1,
-            "fake_operators": 1,
+            "lead_time": 1,
+            "operators": 0,
+            "fake_operators": 0,
             "earliness": 0,
             "tardiness": 0,
         }
 
 ####### INITIALIZE ########
 schedule_length = 0
-data_bank = BatchData(num_orders)
-input_json = data_bank.get_batch()
-input_json = data_bank.generate_due_dates("",[1,1])
+#data_bank = BatchData(num_orders)
+#input_json = data_bank.get_batch()
+#input_json = data_bank.generate_due_dates("",[1,1])
 #data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
 with open("/home/buske/Progress/ProductionPlanningWithILP/Data/Parsed_Json/batched_same_operator.json") as f:
     input_json = json.load(f)

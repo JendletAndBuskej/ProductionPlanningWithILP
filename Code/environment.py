@@ -224,8 +224,6 @@ class Environment:
         Returns:
             _type_: _description_
         """
-        print("                                                 timeline len:")
-        print(self.time_line.shape)
         scaled_time_step = self.time_step_size/100000
         balance_json = {
         "make_span": 2*scaled_time_step/(len(self.schedule[1,:])),
