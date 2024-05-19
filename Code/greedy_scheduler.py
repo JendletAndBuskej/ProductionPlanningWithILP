@@ -5,9 +5,11 @@ from classes import Machine, Operation
 from datetime import datetime
 
 class GreedyScheduler:
-    def __init__(self, input_json: dict) -> None:
+    def __init__(self, input_json: dict, settings_json: dict) -> None:
         env = Environment(input_json)
         self.operations = env.schedule[1,:]
+        self.time_step_size = settings_json["time_step_size"]
+        self.num_operators = settings_json["num_operators"]
         self.orders = env.orders
         self.operations_precedence_time = np.zeros([1,self.operations.shape[0]],dtype=float)
         self.machines = self.instanciate_machines(env.machines)
@@ -43,7 +45,13 @@ class GreedyScheduler:
             due_date_prio[0,order_indicies] += num_orders
             num_orders -= 1
         return (due_date_prio)
-      
+    
+    def reset_scheduler(self):
+        self.operations_precedence_time = np.zeros([1,self.operations.shape[0]],dtype=float)
+        self.oper_num_childs = self.instanciate_num_childs()
+        self.selection_mask = self.get_selection_mask()
+        self.due_date_prio = self.instanciate_due_date_prio()
+
     def get_selection_mask(self):
         valid_selections = np.where(self.oper_num_childs[1,:] == 0)[0]
         selection_mask = np.zeros([1,self.operations.shape[0]],dtype=int)
@@ -66,7 +74,9 @@ class GreedyScheduler:
         if not (parent):
             return
         parent_index = np.where(np.isin(self.oper_num_childs[0,:], parent))
-        self.operations_precedence_time[0,parent_index] = end_time
+        current_precedence_time = self.operations_precedence_time[0,parent_index]
+        if (end_time >= current_precedence_time):
+            self.operations_precedence_time[0,parent_index] = end_time
 
     def get_earliest_machine_id(self, machine_ids: list[int], precedence_time: float) -> int:
         earliest_time = abs(self.machines[machine_ids[0]].max_time - precedence_time)
@@ -78,34 +88,126 @@ class GreedyScheduler:
                 earliest_machine_id = machine_id
         return (earliest_machine_id)
     
+    def get_obj_value(self):
+        obj_value = self.get_obj_lead_time()
+        obj_value += self.get_obj_make_span()
+        obj_value += self.get_obj_due_date()
+        obj_value = self.get_obj_operators()
+        print(obj_value)
+        # for iOrder, order in enumerate(self.orders):
+            # opers = np.array(order.operations)
+            # oper_indices = np.where(np.isin(self.schedule[1,:],opers))[0]
+        return obj_value
+
+    def get_obj_lead_time(self):
+        orders_lead_time = np.ones([3,len(self.orders)], dtype=object)
+        orders_lead_time[0,:] = self.orders
+        orders_lead_time[1,:] *= 10**10
+        for machine in self.machines:
+            opers = machine.operations
+            if (opers is None): continue
+            for iOper, oper in enumerate(opers):
+                start_time = machine.start_times[iOper]
+                finish_time = machine.finish_times[iOper]
+                order = oper.order
+                order_index = np.where(np.isin(orders_lead_time[0,:], order))[0]
+                order_lead_time_start = orders_lead_time[1,order_index]
+                order_lead_time_finish = orders_lead_time[2,order_index]
+                if (start_time < order_lead_time_start):
+                    orders_lead_time[1,order_index] = start_time
+                if (finish_time > order_lead_time_finish): 
+                    orders_lead_time[2,order_index] = finish_time
+        lead_time = np.sum(np.diff(orders_lead_time[1:,:], axis=0))
+        return lead_time
+
+    def get_obj_make_span(self):
+        machines_max_time = np.array([machine.max_time for machine in self.machines])
+        make_span = np.amax(machines_max_time)
+        return make_span
+
+    def get_obj_operators(self):
+        width_schedule = self.get_obj_make_span()
+        num_time_intervals = math.ceil(width_schedule/self.time_step_size)
+        num_operators = np.zeros([1,num_time_intervals], dtype=float)
+        for machine in self.machines:
+            opers = machine.operations
+            if (opers is None): continue
+            for iOper, oper in enumerate(opers):
+                start_time_interval = math.floor(machine.start_times[iOper]/self.time_step_size)
+                finish_time_interval = math.ceil(machine.finish_times[iOper]/self.time_step_size)
+                time_interval = np.arange(start_time_interval, finish_time_interval)
+                num_operators[0,time_interval] += oper.num_operators
+        return num_operators
+
+    def get_obj_due_date(self):
+        orders_due_date = np.ones([3,len(self.orders)], dtype=object)
+        orders_due_date[0,:] = self.orders
+        orders_due_date[2,:] = np.array([order.due_date for order in self.orders])
+        for machine in self.machines:
+            opers = machine.operations
+            if (opers is None): continue
+            for iOper, oper in enumerate(opers):
+                finish_time = machine.finish_times[iOper]
+                order = oper.order
+                order_index = np.where(np.isin(orders_due_date[0,:], order))[0]
+                order_finished_time = orders_due_date[1,order_index]
+                if (finish_time > order_finished_time): 
+                    orders_due_date[1,order_index] = finish_time
+        due_date = np.sum(np.diff(orders_due_date[1:,:], axis=0))
+        return due_date
+    
     def make_span_scheduling(self):
-        # i = 0
+        self.reset_scheduler()
         while True:
-            # i += 1
-            # if (i >= 25): break
             if not (np.any(self.selection_mask)): break
             prio_selections = self.due_date_prio*self.selection_mask
-            print("\n",self.selection_mask)
-            print(prio_selections)
             valid_operations = np.where(prio_selections == np.amax(prio_selections))[1]
             valid_operations_precedence_time = self.operations_precedence_time[0,valid_operations]
             selected_operation_index = valid_operations[np.argmin(valid_operations_precedence_time)]
             selected_operation = self.operations[selected_operation_index]
             selected_operation_mIDS = selected_operation.valid_machine_ids
             selected_operation_precedence_time = self.operations_precedence_time[0,selected_operation_index]
-            print("selected_operation_index: ",selected_operation_index)
-            print("selected_operation: ",selected_operation.name)
-            print("selected_operation_mIDS: ",selected_operation_mIDS)
             selected_machine_id = self.get_earliest_machine_id(selected_operation_mIDS, selected_operation_precedence_time)
-            print("selected_machine_id: ",selected_machine_id)
             selected_machine = self.machines[selected_machine_id]
-            print("selected_machine: ",selected_machine)
-            operation_start_time = selected_machine.max_time
+            operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time)
             operation_end_time = operation_start_time + selected_operation.execution_time
-            print("operation_start_time: ",operation_start_time)
             selected_machine.add_operation(selected_operation, operation_start_time)
             self.update_selection_mask(selected_operation)
             self.update_precedence_times(selected_operation, operation_end_time)            
+        self.get_obj_value()
+
+    def get_best_comb_operators(self):
+        target = self.num_operators
+        elements = np.array([oper.num_operators for oper in self.operations])*self.selection_mask
+        elements = [elem for elem in elements.tolist()[0] if elem != 0.0]
+        possible_sums = {0: []}
+        closest_sum_value = 0
+        closest_combination_indices = []
+        for idx, elem in enumerate(elements):
+            if elem == 0:
+                continue
+            new_sums = {}
+            for current_sum, combination in possible_sums.items():
+                new_sum = current_sum + elem
+                if new_sum not in possible_sums:
+                    new_combination = combination + [idx]
+                    new_sums[new_sum] = new_combination
+                    if new_sum <= target and new_sum > closest_sum_value:
+                        closest_sum_value = new_sum
+                        closest_combination_indices = new_combination        
+            possible_sums.update(new_sums)
+        return closest_combination_indices
+
+    def operators_scheduling(self):
+        self.reset_scheduler()
+        while True:
+            if not (np.any(self.selection_mask)): break
+            selected_operations = self.get_best_comb_operators()
+            
+            # selected_machine.add_operation(selected_operation, operation_start_time)
+            # self.update_selection_mask(selected_operation)
+            # self.update_precedence_times(selected_operation, operation_end_time)
+
 
     # def plot(self, real_size = True, save_plot = False, hide_text = False) -> None:
     def plot(self, save_plot = False) -> None:
@@ -247,8 +349,13 @@ if __name__ == "__main__":
     project_path = os.path.dirname(os.path.dirname(__file__))
     with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
-    gs = GreedyScheduler(input_json)
-    gs.make_span_scheduling()
+    settings_json = {
+        "time_step_size" : 50000,
+        "num_operators" : 5
+        }
+    gs = GreedyScheduler(input_json,settings_json)
+    # gs.make_span_scheduling()
+    gs.operators_scheduling()
     gs.plot()
     # gs.machines[0].add_operation(gs.operations[0],start_time=0.0)
     # gs.machines[1].add_operation(gs.operations[1],start_time=22140)

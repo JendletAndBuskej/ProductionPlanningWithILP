@@ -192,8 +192,8 @@ class Scheduler:
         return 0
     
 if __name__ == "__main__":
-    # scheduler = Scheduler(num_orders=3)
-    scheduler = Scheduler()
+    scheduler = Scheduler(num_orders=3)
+    # scheduler = Scheduler()
     # scheduler.compute_theoretical_max()
     scheduler.schedule(scaler=2,runs_factor=2,num_divides=3)
 ### INITIALIZATION ###
