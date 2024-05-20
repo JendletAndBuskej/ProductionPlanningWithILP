@@ -173,11 +173,11 @@ class GreedyScheduler:
             operation_end_time = operation_start_time + selected_operation.execution_time
             selected_machine.add_operation(selected_operation, operation_start_time)
             self.update_selection_mask(selected_operation)
-            self.update_precedence_times(selected_operation, operation_end_time)            
+            self.update_precedence_times(selected_operation, operation_end_time)
         self.get_obj_value()
 
-    def get_best_comb_operators(self):
-        target = self.num_operators
+    def get_best_comb_operators(self, spill_over: float):
+        target = self.num_operators - spill_over
         elements = np.array([oper.num_operators for oper in self.operations])*self.selection_mask
         elements = [elem for elem in elements.tolist()[0] if elem != 0.0]
         possible_sums = {0: []}
@@ -200,10 +200,25 @@ class GreedyScheduler:
 
     def operators_scheduling(self):
         self.reset_scheduler()
+        spill_overs = [0.0]
+        iTI = 0
         while True:
             if not (np.any(self.selection_mask)): break
-            selected_operations = self.get_best_comb_operators()
-            
+            spill_over = spill_overs[iTI]  
+            selected_operations_indices = self.get_best_comb_operators(spill_over)
+            for iOper, selected_operation_index in enumerate(selected_operations_indices):
+                selected_operation = self.operations[selected_operation_index]
+                selected_operation_mIDS = selected_operation.valid_machine_ids
+                selected_operation_precedence_time = self.operations_precedence_time[0,selected_operation_index]
+                selected_machine_id = self.get_earliest_machine_id(selected_operation_mIDS, selected_operation_precedence_time)
+                selected_machine = self.machines[selected_machine_id]
+                operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time, iTI*self.time_step_size)
+                operation_end_time = operation_start_time + selected_operation.execution_time
+                num_spill_overs_forward = math.ceil(operation_end_time/self.time_step_size) - iTI
+                selected_machine.add_operation(selected_operation, operation_start_time)
+                self.update_selection_mask(selected_operation)
+                self.update_precedence_times(selected_operation, operation_end_time)
+            iTI += 1
             # selected_machine.add_operation(selected_operation, operation_start_time)
             # self.update_selection_mask(selected_operation)
             # self.update_precedence_times(selected_operation, operation_end_time)
@@ -351,7 +366,7 @@ if __name__ == "__main__":
             input_json = json.load(f)
     settings_json = {
         "time_step_size" : 50000,
-        "num_operators" : 5
+        "num_operators" : 3
         }
     gs = GreedyScheduler(input_json,settings_json)
     # gs.make_span_scheduling()
