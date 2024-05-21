@@ -98,9 +98,7 @@ class BatchData:
         current_due_date = last_due_date + distance_between
         for iOrd, order in enumerate(self.selected_orders):
             random_offset = np.random.normal(0.0, 0.01*distance_between) 
-            print("\n",random_offset)
             current_due_date -= distance_between + random_offset
-            print(current_due_date)
             self.batch_order_list[order]["due_date"] = current_due_date
         return (self.batch_order_list)
     

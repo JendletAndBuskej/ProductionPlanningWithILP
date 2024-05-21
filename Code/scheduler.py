@@ -6,14 +6,16 @@ import json, os, math, timeit
 class Scheduler:
     def __init__(self, num_orders: int | None = None, weight_json: dict = {}) -> None:
         project_path = os.path.dirname(os.path.dirname(__file__))
-        if not (weight_json):
+        self.weight_json = weight_json
+        if (weight_json) == {}:
             self.weight_json = {
                 "max_amount_operators": 10,
                 "make_span": 1,
                 "lead_time": 1,
                 "operators": 0,
                 "earliness": 0,
-                "tardiness": 0
+                "tardiness": 0,
+                "fake_operators": 0
                 }
         with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
@@ -21,7 +23,7 @@ class Scheduler:
             data_bank = BatchData(num_orders)
             input_json = data_bank.generate_batch().generate_due_dates(1000000, 2/3)
             data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
-        self.env = Environment(input_json)
+        self.env = Environment(input_json,self.weight_json)
         self.env.create_ilp_model(weight_json)
     
     def unlock_with_probability(
@@ -75,7 +77,7 @@ class Scheduler:
         random_sequence = get_random_sequence_of_operations()
         t_interval_size = max(4,int((self.env.time_line[-1]/self.env.time_step_size)/(3*self.current_divide)))
         timelimit = 10
-        print(f"Num operations is {chronological_order.shape[0]}, the expected max time is {timelimit*2*chronological_order.shape[0]}.")
+        # print(f"Num operations is {chronological_order.shape[0]}, the expected max time is {timelimit*2*chronological_order.shape[0]}.")
         for oper_index in chronological_order:
             oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
             oper_machine = [self.env.schedule[0,oper_index]]
@@ -92,7 +94,7 @@ class Scheduler:
             start_time = timeit.default_timer() 
             instance_solution = self.env.run_ilp_instance(ilp_data, timelimit)
             finished_time = timeit.default_timer()
-            print("Time of a chrono run: ",finished_time - start_time)
+            # print("Time of a chrono run: ",finished_time - start_time)
             self.env.update_from_ilp_solution(instance_solution, oper_time_interval)
         for oper_index in random_sequence:
             oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
@@ -119,7 +121,7 @@ class Scheduler:
         self.current_divide = 1
         self.env.plot(real_size=True, save_plot=False, hide_text=False)
         print("Returning in schedule and skipping compress to skip ctrl-c")
-        return
+        # return
         self.env.divide_timeline()
         compress_start_time = timeit.default_timer() 
         while True: 
@@ -192,74 +194,7 @@ class Scheduler:
         return 0
     
 if __name__ == "__main__":
-    # scheduler = Scheduler(num_orders=8)
-    scheduler = Scheduler()
+    scheduler = Scheduler(num_orders=3)
+    # scheduler = Scheduler()
     # scheduler.compute_theoretical_max()
     scheduler.schedule(scaler=2,runs_factor=2,num_divides=3)
-### INITIALIZATION ###
-# num_orders = 5 # roughly 3 days 
-# data_bank = BatchData(num_orders)
-# input_json = data_bank.get_batch()
-# input_json = data_bank.generate_due_dates("", [1, 1])
-# data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
-# project_path = os.path.dirname(os.path.dirname(__file__))
-# with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
-    # input_json = json.load(f)   
-# env = Environment(input_json)
-# env.create_ilp_model(weight_json) 
-### HELP_FUNCTIONS ###
-# def compute_idle_time():
-    # pass
-# 
-# def compress():
-    # chronological_order = chronological_order_of_operations()
-    # random_sequence = get_random_sequence_of_operations()
-    # t_interval_size = max(4,int((env.time_line[-1]/env.time_step_size)/(3*current_divide)))
-    # timelimit = 10
-    # for oper_index in chronological_order:
-        # oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
-        # oper_machine = [env.schedule[0,oper_index]]
-        # oper_order = [env.schedule[1,oper_index].order.id]
-        # unlocked_indices, locked_indices = unlock_with_probability([0.5, 0.5],
-                                                                #    1,
-                                                                #    oper_time_interval,
-                                                                #    oper_machine,
-                                                                #    oper_order)
-        # if (unlocked_indices == []):
-            # continue
-        # ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
-        # instance_solution = env.run_ilp_instance(ilp_data)#, timelimit)
-        # env.update_from_ilp_solution(instance_solution, oper_time_interval)
-    # for oper_index in random_sequence:
-        # oper_time_interval = centralize_time_interval_of_operation(oper_index, t_interval_size)
-        # oper_machine = [env.schedule[0,oper_index]]
-        # oper_order = [env.schedule[1,oper_index].order.id]
-        # unlocked_indices, locked_indices = unlock_with_probability([0.5, 0.5],
-                                                                #    1,
-                                                                #    oper_time_interval,
-                                                                #    oper_machine,
-                                                                #    oper_order)
-        # if (unlocked_indices == []):
-            # continue
-        # ilp_data = env.to_ilp(unlocked_indices, locked_indices, oper_time_interval)
-        # instance_solution = env.run_ilp_instance(ilp_data, timelimit)
-        # env.update_from_ilp_solution(instance_solution, oper_time_interval)
-    # env.remove_excess_time()
-# 
-# def chronological_order_of_operations():
-    # chronological_order = np.argsort(env.schedule[2,:])
-    # return (chronological_order)
-# 
-# def get_random_sequence_of_operations():
-    # random_sequence = np.arange(env.schedule.shape[1])
-    # np.random.shuffle(random_sequence)
-    # return (random_sequence)
-# 
-# def centralize_time_interval_of_operation(operation_index: int, time_interval_size: int) -> list[int, int]:
-    # operation_start_time = env.schedule[2,operation_index]
-    # lower_time_interval = operation_start_time - int(time_interval_size/2)
-    # to_shift_right = min(0,lower_time_interval)
-    # lower_time_interval = operation_start_time - int(time_interval_size/2) - to_shift_right
-    # upper_time_interval = operation_start_time + int(time_interval_size/2) - to_shift_right
-    # centralized_time_interval = [lower_time_interval, upper_time_interval]
-    # return (centralized_time_interval)

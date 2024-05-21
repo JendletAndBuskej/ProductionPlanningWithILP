@@ -529,6 +529,32 @@ class Environment:
                 is_locked_in_order[(iOper+1,iOrd[0]+1)] = 1
             return (is_locked_in_order)
         
+        def get_last_oper_indices(order_within: list["Order"]) -> dict:
+            def get_parent(operation: "Operation") -> "Operation":
+                parent = operation.parent
+                if (parent is None):
+                    return operation
+                last_operation = get_parent(parent)
+                return last_operation
+                
+            last_oper_indices = init_dict(len(order_within))
+            for iOrder, order in enumerate(order_within):
+                any_oper = order.operations[0]
+                last_oper = get_parent(any_oper)
+                last_oper_index = np.where(np.isin(self.schedule[1,:],last_oper))[0][0]
+                last_oper_indices[iOrder+1] = last_oper_index
+            last_oper_indices_unlock = init_dict(len(order_within))
+            # print("last_oper_indices: ",last_oper_indices)
+            for iOper, unlock_oper_index in enumerate(unlocked_opers_indices):
+                for iItem, last_oper_items in enumerate(last_oper_indices.items()):
+                    key, value = last_oper_items
+                    # print("\nkey: ", key)
+                    # print("value: ", value)
+                    # print("iItem: ",iItem)
+                    if (value == unlock_oper_index):
+                        last_oper_indices_unlock[iItem+1] = iOper + 1
+            return (last_oper_indices_unlock)
+        
         def get_order_due_dates(order_within: list["Order"]):
             order_due_dates = init_dict(len(order_within))
             for iOrd, order in enumerate(order_within):
@@ -564,19 +590,12 @@ class Environment:
         is_final_order_in = get_final_order_in(get_unlocked_orders_within_interval())
         is_init_order_in = get_init_order_in(orders_within_interval)
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
-        # print("hello world")
-        # oper = self.schedule[1,unlocked_opers_indices[0]]
-        # order = oper.order.name
-        # print(order)
-        # penis = [order.name for order in self.orders]
-        # print(penis)
-        # print(is_oper_in_order)
+        last_oper_indices = get_last_oper_indices(orders_within_interval)
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
         balance_json = self.get_balance_weight()
-        # print(exec_time)
-        # print(locked_oper_exec_time)
+        print(last_oper_indices)
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
@@ -599,6 +618,7 @@ class Environment:
                 "is_oper_in_order" : is_oper_in_order,
                 "is_locked_in_order" : is_locked_in_order,
                 "order_due_dates" : order_due_dates,
+                "last_oper_indices" : last_oper_indices,
                 "balance_make_span" : { None: balance_json["make_span"] },
                 "balance_make_real" : { None: balance_json["make_span_real"] },
                 "balance_lead_time" : { None: balance_json["lead_time"] },
