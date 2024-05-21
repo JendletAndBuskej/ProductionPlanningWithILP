@@ -71,6 +71,7 @@ def run_t_interval(type, env, type_list, t_interval):
     env.plot(real_size = True, save_plot = True)
 
     print(obj_value[0])
+
     sub_run_counter = 0
     t_interval2 = [t_interval[0], t_interval[1]]
     if (type == "machine"):
@@ -217,8 +218,8 @@ def RunGroup(type, nr_unlock, env, t_interval, is_time_based=True):
                 break
             run = np.append(run, shuffled_type[idx])
         runs_list.append(run)
-    print(runs_list)
     for iRun, run in enumerate(runs_list):
+        print(env.orders[int(run)].name)
         run_start_time = time.time()
         if (is_time_based):
             run_t_interval(type, env, run, t_interval)

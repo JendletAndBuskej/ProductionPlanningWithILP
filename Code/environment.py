@@ -475,29 +475,17 @@ class Environment:
                     sorted_orders += [order]
             return (sorted_orders) 
         
-        def get_unlocked_orders_within_interval() -> list["Order"]:
-            all_indicies = np.array(unlocked_opers_indices).astype(int)
-            orders_within_interval = []
-            for iOper, oper in enumerate(all_indicies):
-                order = self.schedule[1,oper].order
-                if order in orders_within_interval:
-                    continue
-                orders_within_interval += [order]
-            sorted_orders = []
-            for iOrder, order in enumerate(self.orders):
-                is_order_in = np.isin(np.array(orders_within_interval), order)
-                if (is_order_in.any()):
-                    sorted_orders += [order]
-            return (sorted_orders)
-        
-        def get_final_order_in(unlock_order_within: list["Order"]) -> dict:
-            final_order_in = init_dict(len(unlock_order_within))
-            for iOrd, order in enumerate(unlock_order_within):
+        def get_final_order_in(order_within: list["Order"]) -> dict:
+            final_order_in = init_dict(len(order_within))
+            for iOrd, order in enumerate(order_within):
                 opers_np = np.array(order.operations)
                 oper_indices = np.where(np.isin(self.schedule[1,:], opers_np))
                 final_order_start_time = np.max(self.schedule[2,oper_indices])
+                final_order_index = np.argmax(self.schedule[2,oper_indices])
                 if (final_order_start_time < time_interval[1]):
                     final_order_in[iOrd+1] = 1
+                    if (final_order_index in locked_opers_indices):
+                        final_order_in[iOrd+1] = 0
             return (final_order_in)
         
         def get_init_order_in(order_within: list["Order"]) -> dict:
@@ -587,7 +575,7 @@ class Environment:
         precedence, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
         locked_amount_operators = get_locked_amount_operators()
-        is_final_order_in = get_final_order_in(get_unlocked_orders_within_interval())
+        is_final_order_in = get_final_order_in(orders_within_interval)
         is_init_order_in = get_init_order_in(orders_within_interval)
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
         last_oper_indices = get_last_oper_indices(orders_within_interval)
@@ -595,7 +583,15 @@ class Environment:
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
         balance_json = self.get_balance_weight()
+            #dret
         print(last_oper_indices)
+        for key,value in last_oper_indices.items():
+            if (value > 0):
+                print(key)
+                print(value)
+                print(self.schedule[1,self.orders[key-1]].name)
+                print(self.schedule[1,unlocked_opers_indices[value-1]].name)
+
         ilp_input = {
             None: {
                 "num_machines" : num_machines,

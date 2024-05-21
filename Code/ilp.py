@@ -313,6 +313,8 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         def lead_time_behaviour():
             def calculate_max_time(order):
                 oper = model.last_oper_indices[order]
+                if (oper == 0):
+                    return (0)
                 return (model.is_final_order_in[order]*sum(model.assigned[m,oper,t]*(t + model.exec_time[oper])
                                                            for m in model.machines
                                                            for t in model.time_indices))
@@ -335,6 +337,8 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         def tardiness_behaviour():
             def last_oper_end_time(order):
                 oper = model.last_oper_indices[order]
+                if (oper == 0):
+                    return (0)
                 last_time = sum(model.assigned[m,oper,t]*(t + model.exec_time[oper])
                                 for m in model.machines
                                 for t in model.time_indices)
@@ -405,7 +409,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     #                                                rule=last_order_locked_const)
     model.earliness_help_const = pyo.Constraint(
                                                 # model.machines, 
-                                                model.opers, 
+                                                # model.opers, 
                                                 # model.time_indices, 
                                                 model.orders,
                                                 rule=earliness_help_const)
