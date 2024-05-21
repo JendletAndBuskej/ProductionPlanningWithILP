@@ -93,7 +93,7 @@ class GreedyScheduler:
         obj_value += self.get_obj_make_span()
         obj_value += self.get_obj_due_date()
         obj_value = self.get_obj_operators()
-        print(obj_value)
+        # print(obj_value)
         # for iOrder, order in enumerate(self.orders):
             # opers = np.array(order.operations)
             # oper_indices = np.where(np.isin(self.schedule[1,:],opers))[0]
