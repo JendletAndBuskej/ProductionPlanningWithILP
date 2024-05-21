@@ -232,8 +232,10 @@ class Environment:
         "lead_time_fake": 2*scaled_time_step/(len(self.schedule[1,:])),
         "operators": 10/self.weight_json["max_amount_operators"],
         "fake_operators": 1/len(self.time_line),
-        "earliness": scaled_time_step/(len(self.orders)),
-        "tardiness": scaled_time_step/(len(self.orders)),
+        "earliness": 1,
+        "tardiness": 1,
+        # "earliness": scaled_time_step/(len(self.orders)),
+        # "tardiness": scaled_time_step/(len(self.orders)),
         }
         return (balance_json)
     
@@ -286,7 +288,7 @@ class Environment:
             num_objects: int,
             t_interval: list[int],
             check_statement: str,
-            object_idx: list[int] =[0]
+            object_idx: list[int] =[]
         ) -> tuple[list["Operation"], list["Operation"]]:
         """Help function to unlock operations
         """
@@ -300,7 +302,7 @@ class Environment:
             object_amount = len(self.machines)
         locked_oper = []
         unlocked_oper = []
-        if (len(object_idx) == 1 and object_idx[0] == 0):
+        if (len(object_idx) == 0):
             object_idx = random.sample(range(object_amount), num_objects)
         for oper_idx in range(self.schedule.shape[1]):
             oper_info = self.schedule[:,oper_idx]
@@ -368,7 +370,6 @@ class Environment:
         if (len(unlocked_opers_indices) == 0):
             print("unlock list is empty, passing run")
             return([])
-        
         def init_dict(dim_1: int, dim_2: int = 0, dim_3: int = 0) -> dict:
             init_dict = {}
             if dim_2 == 0 and dim_3 == 0:
@@ -467,11 +468,31 @@ class Environment:
                 if order in orders_within_interval:
                     continue
                 orders_within_interval += [order]
-            return (orders_within_interval) 
+            sorted_orders = []
+            for iOrder, order in enumerate(self.orders):
+                is_order_in = np.isin(np.array(orders_within_interval), order)
+                if (is_order_in.any()):
+                    sorted_orders += [order]
+            return (sorted_orders) 
         
-        def get_final_order_in(order_within: list["Order"]) -> dict:
-            final_order_in = init_dict(len(order_within))
-            for iOrd, order in enumerate(order_within):
+        def get_unlocked_orders_within_interval() -> list["Order"]:
+            all_indicies = np.array(unlocked_opers_indices).astype(int)
+            orders_within_interval = []
+            for iOper, oper in enumerate(all_indicies):
+                order = self.schedule[1,oper].order
+                if order in orders_within_interval:
+                    continue
+                orders_within_interval += [order]
+            sorted_orders = []
+            for iOrder, order in enumerate(self.orders):
+                is_order_in = np.isin(np.array(orders_within_interval), order)
+                if (is_order_in.any()):
+                    sorted_orders += [order]
+            return (sorted_orders)
+        
+        def get_final_order_in(unlock_order_within: list["Order"]) -> dict:
+            final_order_in = init_dict(len(unlock_order_within))
+            for iOrd, order in enumerate(unlock_order_within):
                 opers_np = np.array(order.operations)
                 oper_indices = np.where(np.isin(self.schedule[1,:], opers_np))
                 final_order_start_time = np.max(self.schedule[2,oper_indices])
@@ -511,7 +532,7 @@ class Environment:
         def get_order_due_dates(order_within: list["Order"]):
             order_due_dates = init_dict(len(order_within))
             for iOrd, order in enumerate(order_within):
-                order_due_dates[iOrd+1] = math.floor(order.due_date/self.time_step_size)
+                order_due_dates[iOrd+1] = 1 + math.floor(order.due_date/self.time_step_size)
             return (order_due_dates)
         
         def get_orders_finished_time(order_within: list["Order"]) -> dict:
@@ -540,13 +561,22 @@ class Environment:
         precedence, prece_locked_before, prece_locked_after = get_precedence()
         locked_schedule, locked_oper_exec_time = get_locked_oper_info()
         locked_amount_operators = get_locked_amount_operators()
-        is_final_order_in = get_final_order_in(orders_within_interval)
+        is_final_order_in = get_final_order_in(get_unlocked_orders_within_interval())
         is_init_order_in = get_init_order_in(orders_within_interval)
         is_oper_in_order = get_order_unlocked_oper(orders_within_interval)
+        # print("hello world")
+        # oper = self.schedule[1,unlocked_opers_indices[0]]
+        # order = oper.order.name
+        # print(order)
+        # penis = [order.name for order in self.orders]
+        # print(penis)
+        # print(is_oper_in_order)
         is_locked_in_order = get_order_locked_oper(orders_within_interval)
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
         balance_json = self.get_balance_weight()
+        # print(exec_time)
+        # print(locked_oper_exec_time)
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
@@ -755,7 +785,7 @@ class Environment:
                 for oper in order.operations:
                     if (oper.parent == None):
                         idx = np.where(np.isin(self.schedule[1,:], oper))[0]
-                        order_due_date[iOrder] = np.ceil(order.due_date/self.time_step_size)
+                        order_due_date[iOrder] = np.floor(order.due_date/self.time_step_size)
                         oper_exec = np.ceil(oper.execution_time/self.time_step_size)
                         fg_time[iOrder] = self.schedule[2,idx] + oper_exec
                         break
@@ -763,10 +793,10 @@ class Environment:
             earl_per_order = np.zeros(len(self.orders))
             tard_per_order = np.zeros(len(self.orders))
             for iDelta, delta in enumerate(delta_time):
-                if (delta < 0):
-                    earl_per_order[iDelta] = -weight_json["earliness"]*balance_json["earliness"]*delta
+                if (delta > 0):
+                    earl_per_order[iDelta] = weight_json["earliness"]*balance_json["earliness"]*delta
                 else:
-                    tard_per_order[iDelta] = weight_json["tardiness"]*balance_json["tardiness"]*delta
+                    tard_per_order[iDelta] = -weight_json["tardiness"]*balance_json["tardiness"]*delta
             return (earl_per_order, tard_per_order, delta_time)
         objective_value_short = {
             "total_value": (make_span()[0] 
@@ -872,17 +902,20 @@ class Environment:
         ax.set_ylabel("Machines", fontsize=16)
         plt.gca().invert_yaxis()
         
-        preferred_ticks = 15
-        num_ticks = min(preferred_ticks,self.time_line.shape[0])
-        tick_distances = math.ceil(self.time_line.shape[0]/num_ticks)
-        actual_num_ticks = (self.time_line.shape[0]+1)//tick_distances
-        xticks = np.arange(actual_num_ticks)
-        for iXtick, xtick in enumerate(self.time_line):
-            if (iXtick%tick_distances==0):
-               xticks[iXtick//tick_distances] = xtick 
+        # preferred_ticks = 15
+        # num_ticks = min(preferred_ticks,self.time_line.shape[0])
+        # tick_distances = math.ceil(self.time_line.shape[0]/num_ticks)
+        # actual_num_ticks = (self.time_line.shape[0]+1)//tick_distances
+        # xticks = np.arange(actual_num_ticks)
+        # for iXtick, xtick in enumerate(self.time_line):
+        #     if (iXtick%tick_distances==0):
+        #        xticks[iXtick//tick_distances] = xtick 
+        # ax.set_xticks(xticks)
+        # xlim_upper = self.time_line[-1]
+        # ax.set_xlim([0, xlim_upper])
+        xticks = self.time_line
         ax.set_xticks(xticks)
-        xlim_upper = self.time_line[-1]
-        ax.set_xlim([0, xlim_upper])
+
         machine_ticks = get_machine_ticks()
         ax.set_yticks(np.arange(len(self.machines)))
         ax.set_yticklabels(machine_ticks, fontsize = 12)
@@ -931,6 +964,7 @@ class Environment:
         if save_plot:
             plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
             plot_name = datetime.now().strftime("%H_%M_%S")
+            print(plot_name)
             plt.savefig(plot_path+plot_name+".png")
             return
         plt.show()

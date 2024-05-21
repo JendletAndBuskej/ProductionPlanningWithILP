@@ -12,7 +12,7 @@ import pandas as pd
 import time
 
 ########## PARAMETERS #############
-size_steps = 1
+size_steps = 3
 t_max = 60
 iter_per_size =  np.ones([size_steps])
 iter_per_size[0] = 1
@@ -22,12 +22,12 @@ num_machine_unlock_amount = 1
 num_order_unlock_amount = 1
 weight_json = {
             "max_amount_operators": 4,
-            "make_span": 1,
-            "lead_time": 1,
-            "operators": 100,
-            "fake_operators": 100,
+            "make_span": 0,
+            "lead_time": 0,
+            "operators": 0,
+            "fake_operators": 0,
             "earliness": 1,
-            "tardiness": 2,
+            "tardiness": 1,
         }
 
 ####### INITIALIZE ########
@@ -44,7 +44,7 @@ total_loops = int(2*sum(iter_per_size))
 loops_count = 0
 
 init_obj_value = env.get_objective_value(weight_json)
-env.plot()
+# env.plot()
 
 
 ###### HELP_FUNCTIONS #######
@@ -217,7 +217,7 @@ def RunGroup(type, nr_unlock, env, t_interval, is_time_based=True):
                 break
             run = np.append(run, shuffled_type[idx])
         runs_list.append(run)
-    # runs
+    print(runs_list)
     for iRun, run in enumerate(runs_list):
         run_start_time = time.time()
         if (is_time_based):
@@ -289,7 +289,7 @@ for iSize in range(size_steps):
     
     for jIter in range(int(iter_per_size[iSize])):
         loops_count = print_progress(loops_count, total_loops)
-        RunGroup("order", 2, env, t_interval)
+        # RunGroup("order", 2, env, t_interval)
         loops_count = print_progress(loops_count, total_loops)
         RunGroup("order", int(1), env, t_interval)
 print("Total Run Time: " + time_to_string(main_start_time))
@@ -301,4 +301,4 @@ print("initial objective value:")
 print(init_obj_value[0])
 print("final objective value:")
 print(final_obj_value[0])
-env.plot(True)
+# env.plot(True)
