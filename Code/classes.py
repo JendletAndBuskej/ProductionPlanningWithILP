@@ -1,6 +1,6 @@
 ############### IMPORT #################
 import numpy as np
-
+import math
 ############### CLASSES ################
 
 class Operation:
@@ -102,7 +102,7 @@ class Machine:
         self.finish_times = None
         self.max_time = 0.0
         
-    def add_operation(self, operation: "Operation", start_time: float):
+    def add_operation(self, operation: "Operation", start_time: float, indexed_time: float | None = None):
         if not isinstance(operation, Operation):
             raise TypeError("The Operation added to a machine must be of the class 'Operation'")
         operation_np = np.array(operation)
@@ -122,6 +122,8 @@ class Machine:
             self.start_times = np.hstack((self.start_times, start_time_np))
             self.finish_times = np.hstack((self.finish_times, finish_time_np))
         self.max_time = start_time + operation.execution_time
+        if (indexed_time is not None): 
+            self.max_time = start_time + indexed_time*math.ceil(operation.execution_time/indexed_time)
         
     def print_info(self):
         if (self.operations is None): return

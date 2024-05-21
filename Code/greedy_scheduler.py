@@ -9,6 +9,7 @@ class GreedyScheduler:
         env = Environment(input_json)
         self.operations = env.schedule[1,:]
         self.time_step_size = settings_json["time_step_size"]
+        self.operators_time_step_size = settings_json["operators_time_step_size"]
         self.num_operators = settings_json["num_operators"]
         self.orders = env.orders
         self.operations_precedence_time = np.zeros([1,self.operations.shape[0]],dtype=float)
@@ -127,14 +128,14 @@ class GreedyScheduler:
 
     def get_obj_operators(self):
         width_schedule = self.get_obj_make_span()
-        num_time_intervals = math.ceil(width_schedule/self.time_step_size)
+        num_time_intervals = math.ceil(width_schedule/self.operators_time_step_size)
         num_operators = np.zeros([1,num_time_intervals], dtype=float)
         for machine in self.machines:
             opers = machine.operations
             if (opers is None): continue
             for iOper, oper in enumerate(opers):
-                start_time_interval = math.floor(machine.start_times[iOper]/self.time_step_size)
-                finish_time_interval = math.ceil(machine.finish_times[iOper]/self.time_step_size)
+                start_time_interval = math.floor(machine.start_times[iOper]/self.operators_time_step_size)
+                finish_time_interval = math.ceil(machine.finish_times[iOper]/self.operators_time_step_size)
                 time_interval = np.arange(start_time_interval, finish_time_interval)
                 num_operators[0,time_interval] += oper.num_operators
         return num_operators
@@ -171,7 +172,10 @@ class GreedyScheduler:
             selected_machine = self.machines[selected_machine_id]
             operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time)
             operation_end_time = operation_start_time + selected_operation.execution_time
-            selected_machine.add_operation(selected_operation, operation_start_time)
+            if (self.time_step_size is not None):
+                operation_end_time = self.time_step_size*math.ceil(operation_end_time/self.time_step_size)
+            indexed_time = self.time_step_size
+            selected_machine.add_operation(selected_operation, operation_start_time, indexed_time)
             self.update_selection_mask(selected_operation)
             self.update_precedence_times(selected_operation, operation_end_time)
         self.get_obj_value()
@@ -179,7 +183,7 @@ class GreedyScheduler:
     def get_best_comb_operators(self, spill_over: float):
         target = self.num_operators - spill_over
         elements = np.array([oper.num_operators for oper in self.operations])*self.selection_mask
-        elements = [elem for elem in elements.tolist()[0] if elem != 0.0]
+        elements = elements[0]
         possible_sums = {0: []}
         closest_sum_value = 0
         closest_combination_indices = []
@@ -204,6 +208,7 @@ class GreedyScheduler:
         iTI = 0
         while True:
             if not (np.any(self.selection_mask)): break
+            if (iTI + 1 > len(spill_overs)): spill_overs += [0.0]
             spill_over = spill_overs[iTI]  
             selected_operations_indices = self.get_best_comb_operators(spill_over)
             for iOper, selected_operation_index in enumerate(selected_operations_indices):
@@ -212,17 +217,19 @@ class GreedyScheduler:
                 selected_operation_precedence_time = self.operations_precedence_time[0,selected_operation_index]
                 selected_machine_id = self.get_earliest_machine_id(selected_operation_mIDS, selected_operation_precedence_time)
                 selected_machine = self.machines[selected_machine_id]
-                operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time, iTI*self.time_step_size)
+                operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time, iTI*self.operators_time_step_size)
                 operation_end_time = operation_start_time + selected_operation.execution_time
-                num_spill_overs_forward = math.ceil(operation_end_time/self.time_step_size) - iTI
+                num_spill_overs_forward = math.ceil(operation_end_time/self.operators_time_step_size) - iTI - 1
+                if (len(spill_overs) < num_spill_overs_forward + iTI + 1):
+                    to_add = num_spill_overs_forward + iTI + 1 - len(spill_overs)
+                    spill_overs += to_add*[0.0]
+                for iSpill, spill_over_elem in enumerate(spill_overs[iTI+1:iTI+num_spill_overs_forward+1]):
+                    spill_over_elem += selected_operation.num_operators
+                    spill_overs[iTI+1+iSpill] = spill_over_elem
                 selected_machine.add_operation(selected_operation, operation_start_time)
                 self.update_selection_mask(selected_operation)
                 self.update_precedence_times(selected_operation, operation_end_time)
             iTI += 1
-            # selected_machine.add_operation(selected_operation, operation_start_time)
-            # self.update_selection_mask(selected_operation)
-            # self.update_precedence_times(selected_operation, operation_end_time)
-
 
     # def plot(self, real_size = True, save_plot = False, hide_text = False) -> None:
     def plot(self, save_plot = False) -> None:
@@ -230,7 +237,7 @@ class GreedyScheduler:
 
         Args:
             real_size (bool, optional): Weather or not the real length of each operation should be
-                                        displayed or the length of time_step_size. Defaults to True.
+                                        displayed or the length of operators_time_step_size. Defaults to True.
             save_plot (bool, optional): Weather or not the plot should be saved or shown. 
                                         Defaults to Show, False.
             hide_text (bool, optional): Weather or not the plot should contain text or not. 
@@ -265,11 +272,11 @@ class GreedyScheduler:
             for iOper, oper in enumerate(self.schedule[1,:]):
                 order = oper.order
                 if not (order in orders_due_dates):
-                    finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.time_step_size)
+                    finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.operators_time_step_size)
                     orders_due_dates[order.name] = {"due_date" : order.due_date,
                                                     "finished_time" : finished_time,
                                                     "final_oper" : oper}
-                oper_finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.time_step_size)
+                oper_finished_time = self.schedule[2,iOper] + math.ceil(oper.execution_time/self.operators_time_step_size)
                 if (oper_finished_time >= orders_due_dates[order.name]["finished_time"]):
                     orders_due_dates[order.name] = {"due_date" : order.due_date,
                                                     "finished_time" : oper_finished_time,
@@ -299,7 +306,9 @@ class GreedyScheduler:
         ax.set_xlabel(" Time", fontsize=16)
         ax.set_ylabel("Machines", fontsize=16)
         plt.gca().invert_yaxis()
-        
+        # xticks = self.operators_time_step_size*np.arange(106)
+        # ax.set_xticks(xticks)
+        # ax.xaxis.grid(True, alpha=0.5)
         # preferred_ticks = 15
         # num_ticks = min(preferred_ticks,self.time_line.shape[0])
         # tick_distances = math.ceil(self.time_line.shape[0]/num_ticks)
@@ -365,12 +374,15 @@ if __name__ == "__main__":
     with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
     settings_json = {
-        "time_step_size" : 50000,
-        "num_operators" : 3
-        }
+        "operators_time_step_size" : 50000,
+        "time_step_size" : 1,
+        "num_operators" : 5,
+        # "max_timeline" : 1000000,
+    }
     gs = GreedyScheduler(input_json,settings_json)
-    # gs.make_span_scheduling()
-    gs.operators_scheduling()
+    gs.make_span_scheduling()
+    # gs.operators_scheduling()
+    # print(gs.get_obj_value())
     gs.plot()
     # gs.machines[0].add_operation(gs.operations[0],start_time=0.0)
     # gs.machines[1].add_operation(gs.operations[1],start_time=22140)
