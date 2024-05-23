@@ -32,7 +32,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
     model.num_time_indices = pyo.Param(within=pyo.NonNegativeIntegers)
     model.num_orders = pyo.Param(within=pyo.NonNegativeIntegers)
     model.time_index_to_real = pyo.Param(within=pyo.NonNegativeIntegers)
-        #balance_json
+    #balance_json
     model.balance_make_span = pyo.Param(within=pyo.NonNegativeReals)
     model.balance_make_real = pyo.Param(within=pyo.NonNegativeReals)
     model.balance_lead_time = pyo.Param(within=pyo.NonNegativeReals)
@@ -263,9 +263,9 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         return (model.operators_per_time[time_index] >= amount + locked_amount - weight_json["max_amount_operators"])
 
     def earliness_help_const(model, order):
-        if (model.last_oper_indices[order] == 0):
-            return (pyo.Constraint.Skip)
         oper = model.last_oper_indices[order]
+        if (oper == 0):
+            return (pyo.Constraint.Skip)
         return (model.earliness[order] >= model.order_due_dates[order] - sum(model.assigned[m,oper,t]*(t + model.exec_time[oper])
                                                                              for m in model.machines
                                                                              for t in model.time_indices))
@@ -298,11 +298,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
         }
 
         def make_span_behaviour():
-            # return (balance_json["make_span"]*sum(t * model.assigned[m, o, t]  
-            #            for m in model.machines 
-            #            for o in model.opers 
-            #            for t in model.time_indices))
-            return (sum(t * model.assigned[m, o, t]  
+            return (balance_json["make_span"]*sum(t * model.assigned[m, o, t]  
                        for m in model.machines 
                        for o in model.opers 
                        for t in model.time_indices))
@@ -315,9 +311,9 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                 oper = model.last_oper_indices[order]
                 if (oper == 0):
                     return (0)
-                return (model.is_final_order_in[order]*sum(model.assigned[m,oper,t]*(t + model.exec_time[oper])
-                                                           for m in model.machines
-                                                           for t in model.time_indices))
+                return (sum(model.assigned[m,oper,t]*(t + model.exec_time[oper])
+                            for m in model.machines
+                            for t in model.time_indices))
             def calculate_min_time(order):
                 return (model.is_init_order_in[order]*model.orders_start_time[order])
             return (balance_json["lead_time"]*sum(calculate_max_time(order) - calculate_min_time(order) 
@@ -331,7 +327,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                                                        for t in model.time_indices))
     
         def earliness_behaviour():
-            return (balance_json["earliness"]*sum(model.is_final_order_in[order]*model.earliness[order]
+            return (balance_json["earliness"]*sum(model.earliness[order]
                         for order in model.orders))
             
         def tardiness_behaviour():
@@ -343,7 +339,7 @@ def instanciate_ilp_model(weight_json: dict | str = {}):
                                 for m in model.machines
                                 for t in model.time_indices)
                 return(last_time)
-            return (balance_json["tardiness"]*sum(model.is_final_order_in[order]*(last_oper_end_time(order) - model.order_due_dates[order])
+            return (balance_json["tardiness"]*sum(last_oper_end_time(order) - model.order_due_dates[order]
                         for order in model.orders))
             
         objective_fun = (0
@@ -444,6 +440,8 @@ def run_ilp(model, ilp_data : dict | str, timelimit: int | None = None) -> None:
     solver.options["tmlim"] = timelimit
     results = solver.solve(instance, tee=False)
     # print(pyo.value(instance.obj))
+    timed_out = False
     if (results.solver.termination_condition == TerminationCondition.maxTimeLimit):
-        print("Maximum time limit reached")
-    return (instance)
+        timed_out = True
+        # print("Maximum time limit reached")
+    return (instance, timed_out)

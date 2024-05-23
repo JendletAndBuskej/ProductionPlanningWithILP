@@ -532,21 +532,19 @@ class Environment:
                 last_oper_index = np.where(np.isin(self.schedule[1,:],last_oper))[0][0]
                 last_oper_indices[iOrder+1] = last_oper_index
             last_oper_indices_unlock = init_dict(len(order_within))
-            # print("last_oper_indices: ",last_oper_indices)
             for iOper, unlock_oper_index in enumerate(unlocked_opers_indices):
                 for iItem, last_oper_items in enumerate(last_oper_indices.items()):
                     key, value = last_oper_items
-                    # print("\nkey: ", key)
-                    # print("value: ", value)
-                    # print("iItem: ",iItem)
                     if (value == unlock_oper_index):
                         last_oper_indices_unlock[iItem+1] = iOper + 1
             return (last_oper_indices_unlock)
         
         def get_order_due_dates(order_within: list["Order"]):
+            # this is the part where Theo did wrong. you don't take into acount that the time interval can start from anything but 0, maggot!
             order_due_dates = init_dict(len(order_within))
             for iOrd, order in enumerate(order_within):
-                order_due_dates[iOrd+1] = 1 + math.floor(order.due_date/self.time_step_size)
+                due_date = 1 + math.floor(order.due_date/self.time_step_size) - time_interval[0]
+                order_due_dates[iOrd+1] = due_date
             return (order_due_dates)
         
         def get_orders_finished_time(order_within: list["Order"]) -> dict:
@@ -583,15 +581,6 @@ class Environment:
         order_due_dates = get_order_due_dates(orders_within_interval)
         orders_finished_time = get_orders_finished_time(orders_within_interval)
         balance_json = self.get_balance_weight()
-            #dret
-        print(last_oper_indices)
-        for key,value in last_oper_indices.items():
-            if (value > 0):
-                print(key)
-                print(value)
-                print(self.schedule[1,self.orders[key-1]].name)
-                print(self.schedule[1,unlocked_opers_indices[value-1]].name)
-
         ilp_input = {
             None: {
                 "num_machines" : num_machines,
@@ -653,8 +642,8 @@ class Environment:
         """
         if (len(ilp_data) == 0):
             return ([])
-        solved_instance = run_ilp(self.model, ilp_data, timelimit=timelimit)
-        return (solved_instance)
+        solved_instance, timed_out = run_ilp(self.model, ilp_data, timelimit=timelimit)
+        return (solved_instance, timed_out)
 
     def update_from_ilp_solution(self, ilp_solution, t_interval) -> None:
         """Updates Environment's class variable self.schedule according to the solution of the ILP.
@@ -702,14 +691,14 @@ class Environment:
                 self.schedule[0,self.mapping_unlocked_opers[operation]] = machine[0]
                 self.schedule[2,self.mapping_unlocked_opers[operation]] = start_time[0] + t_interval[0]
             
-        num_machines = len(self.machines)
+        num_machines = len(self.machines) #why not ilp_solution.num_machines?????
         num_unlocked_oper = instance_2_numpy(ilp_solution.num_opers)
         num_time_indices = instance_2_numpy(ilp_solution.num_time_indices)
         solution_shape = [num_machines, num_unlocked_oper, num_time_indices]
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
         update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
 
-    def get_objective_value(self, weight_json):
+    def get_objective_value(self):
         """returns objective function value and then the actual time without weights.
 
         Args:
@@ -720,6 +709,7 @@ class Environment:
             _type_: _description_
         """
         balance_json = self.get_balance_weight()
+        
         def make_span_real():
             start_time = 0
             end_time = 0
@@ -728,11 +718,11 @@ class Environment:
                 time = self.schedule[2,i] + exec_time
                 if (time > end_time):
                     end_time = time
-            weighted = (end_time-start_time)*weight_json["make_span"]*balance_json["make_span_real"]
+            weighted = (end_time-start_time)*self.weight_json["make_span"]*balance_json["make_span_real"]
             return (weighted, (end_time-start_time))
         
         def make_span():
-            return(np.sum(self.schedule[2,:])*weight_json["make_span"]*balance_json["make_span"],np.sum(self.schedule[2,:]))
+            return(np.sum(self.schedule[2,:])*self.weight_json["make_span"]*balance_json["make_span"],np.sum(self.schedule[2,:]))
             # start_time = np.zeros([len(self.schedule[2,:])])
             # end_time = np.zeros([len(self.schedule[2,:])])
             # for i in range(len(self.schedule[2,:])):
@@ -755,7 +745,7 @@ class Environment:
                     if (oper_end_time > order_end_time):
                         order_end_time = oper_end_time
                 order_lead_time[iOrder] = (order_end_time - order_start_time)
-            weighted = order_lead_time*weight_json["lead_time"]*balance_json["lead_time"]
+            weighted = order_lead_time*self.weight_json["lead_time"]*balance_json["lead_time"]
             return(weighted, order_lead_time)
 
         def operators():
@@ -768,9 +758,9 @@ class Environment:
                     if (time_index >= oper_start_time and time_index < oper_end_time):
                         operators_per_time[time_index] += oper.num_operators
             operator_diff = (operators_per_time 
-                             - weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
+                             - self.weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
             operator_diff = np.where(operator_diff < 0, 0, operator_diff)
-            weighted = operator_diff*weight_json["operators"]*balance_json["operators"]
+            weighted = operator_diff*self.weight_json["operators"]*balance_json["operators"]
             return(weighted ,operators_per_time)
         
         def operators_fake():
@@ -783,9 +773,9 @@ class Environment:
                     if (time_index >= oper_start_time and time_index < oper_end_time):
                         operators_per_time[time_index] += oper.num_operators
             operator_diff = (operators_per_time 
-                             - weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
+                             - self.weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
             operator_diff = np.where(operator_diff < 0, 0, operator_diff)
-            weighted = operator_diff*weight_json["fake_operators"]*balance_json["fake_operators"]
+            weighted = operator_diff*self.weight_json["fake_operators"]*balance_json["fake_operators"]
             return(weighted ,operators_per_time)
 
         def earliness_and_tardiness():
@@ -810,9 +800,9 @@ class Environment:
             tard_per_order = np.zeros(len(self.orders))
             for iDelta, delta in enumerate(delta_time):
                 if (delta > 0):
-                    earl_per_order[iDelta] = weight_json["earliness"]*balance_json["earliness"]*delta
+                    earl_per_order[iDelta] = self.weight_json["earliness"]*balance_json["earliness"]*delta
                 else:
-                    tard_per_order[iDelta] = -weight_json["tardiness"]*balance_json["tardiness"]*delta
+                    tard_per_order[iDelta] = -self.weight_json["tardiness"]*balance_json["tardiness"]*delta
             return (earl_per_order, tard_per_order, delta_time)
         objective_value_short = {
             "total_value": (make_span()[0] 
@@ -842,7 +832,6 @@ class Environment:
             "earliness and tardiness": earliness_and_tardiness()[2],
         }
         return (objective_value_short, objective_value_long, behavior_long)
-
 
     def plot(self, real_size = True, save_plot = False, hide_text = False) -> None:
         """Plots the scheme
@@ -973,19 +962,20 @@ class Environment:
             ax.vlines(x=due_date, ymin=ymin, ymax=ymax, colors=order_color, 
                       ls='--', lw=3, label=label, alpha=0.6)
             num_seed += 1
-        ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left')
+        ncol = math.ceil(len(due_dates)/48)
+        ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left',ncol=ncol)
         if (hide_text):
             ax.xaxis.grid(False)
             ax.set_xticklabels([""])
         if save_plot:
             plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
             plot_name = datetime.now().strftime("%H_%M_%S")
-            print(plot_name)
+            # print(plot_name)
             plt.savefig(plot_path+plot_name+".png")
             return
         plt.show()
         
-    def schedule_to_csv(self) -> None:
+    def schedule_to_csv(self, file_name = "schedule") -> None:
         schedule_np = np.empty([5,self.schedule.shape[1]], dtype=object)
         cols = []
         for operation_index in range(self.schedule.shape[1]):
@@ -1002,7 +992,7 @@ class Environment:
             schedule_np[4,operation_index] = order
             cols += ["Oper_"+str(operation_index)]
         schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID"])
-        csv_path = os.path.dirname(os.path.abspath(__file__))+"/CSV/"
+        csv_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/CSV/"
         if not os.path.exists(csv_path):
             os.makedirs(csv_path)
-        schedule_pd.to_csv(csv_path+"schedule.csv", index=True, sep="\t", encoding="utf-8")
+        schedule_pd.to_csv(csv_path+file_name+".csv", index=True, sep="\t", encoding="utf-8")
