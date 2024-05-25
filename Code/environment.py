@@ -658,6 +658,7 @@ class Environment:
         return False
     
     def revert_update_from_ilp(self):
+        print("Reverted the update")
         self.schedule = self.previous_schedule
         
     def update_from_ilp_solution(self, ilp_solution, t_interval) -> None:
@@ -987,8 +988,8 @@ class Environment:
             return
         plt.show()
         
-    def schedule_to_csv(self, file_name = "schedule") -> None:
-        schedule_np = np.empty([7,self.schedule.shape[1]], dtype=object)
+    def schedule_to_csv(self, file_name = "schedule", theoretical_max: dict | None = None) -> None:
+        schedule_np = np.empty([8,self.schedule.shape[1]], dtype=object)
         cols = []
         for operation_index in range(self.schedule.shape[1]):
             operation = self.schedule[1,operation_index]
@@ -1003,10 +1004,15 @@ class Environment:
             schedule_np[3,operation_index] = finished_time
             schedule_np[4,operation_index] = order
             cols += ["Oper_"+str(operation_index)]
-        schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID", "Due Dates", "Time Step Size"])
+        schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID", "Due Dates", "Time Step Size", "Theoretical Max"])
         for order in self.orders:
             schedule_np[5,order.id] = order.due_date
         schedule_np[6,0] = self.time_step_size
+        if (theoretical_max is not None):
+            i = 0
+            for key, value in theoretical_max.items():
+                schedule_np[7,i] = key+": "+str(value)
+                i += 1
         csv_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/CSV/"
         if not os.path.exists(csv_path):
             os.makedirs(csv_path)

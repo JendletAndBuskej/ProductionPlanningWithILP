@@ -21,8 +21,8 @@ class Scheduler:
                 "earliness": 0,
                 "tardiness": 0,
             }
-        with open(self.master_path+"/Data/Parsed_Json/batched_same_operator.json", "r") as f:
-        # with open(self.master_path+"/Data/Parsed_Json/batched.json", "r") as f:
+        # with open(self.master_path+"/Data/Parsed_Json/batched_same_operator.json", "r") as f:
+        with open(self.master_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
         if (num_orders is not None):
             data_bank = BatchData(num_orders)
@@ -241,11 +241,17 @@ class Scheduler:
             self.max_permutations *= max_permutations_scaler
 
     def compute_theoretical_max(self) -> int:
-        print("theoretical_best_makespan: ", self.theoretical_best_makespan())
-        print("theoretical_best_makespan_due_date: ", self.theoretical_best_makespan_due_date())
-        print("theoretical_best_lead_time: ", self.theoretical_best_lead_time())
-        print("theoretical_best_num_operators: ", self.theoretical_best_num_operators())
-        print("theoretical_best_due_dates: ", self.theoretical_best_due_dates())
+        theoretical_max = {}
+        make_span = self.theoretical_best_makespan()
+        lead_time = self.theoretical_best_lead_time()
+        operators = self.theoretical_best_num_operators()
+        due_dates = self.theoretical_best_due_dates()
+        theoretical_max["make_span"] = self.theoretical_best_makespan()
+        theoretical_max["lead_time"] = self.theoretical_best_lead_time()
+        theoretical_max["operators"] = self.theoretical_best_num_operators()
+        theoretical_max["due_dates"] = self.theoretical_best_due_dates()
+        theoretical_max["total_value"] = make_span + lead_time + operators + due_dates
+        return (theoretical_max)
     
     def theoretical_best_makespan(self) -> int:
         total_time = 0
@@ -368,10 +374,9 @@ if __name__ == "__main__":
     final_obj_value = scheduler.env.get_objective_value()
     print("initial objective value:\n",scheduler.init_obj_value[0])
     print("final objective value:\n",final_obj_value[0])
-    print(scheduler.compute_theoretical_max())
+    theoretical_max = scheduler.compute_theoretical_max()
     scheduler.env.plot(real_size=True,save_plot=True)
-    export_name = str(len(scheduler.env.orders))
-    export_name = [export_name+str(key)+"_"+str(value)+"__" for key, value in scheduler.weight_json.items()]
-    export_name = export_name[-1]
-    print(export_name)
-    scheduler.env.schedule_to_csv(export_name)
+    export_name = str(len(scheduler.env.orders))+"_operations"
+    for key, value in scheduler.weight_json.items():
+        export_name += "___"+key+"_"+str(value)
+    scheduler.env.schedule_to_csv(export_name, theoretical_max=theoretical_max)
