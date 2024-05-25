@@ -18,18 +18,18 @@ class Scheduler:
                 "lead_time": 100,
                 "operators": 0,
                 "fake_operators": 0,
-                "earliness": 100,
-                "tardiness": 1000,
+                "earliness": 0,
+                "tardiness": 0,
             }
-        # with open(self.master_path+"/Data/Parsed_Json/batched_same_operator.json", "r") as f:
-        with open(self.master_path+"/Data/Parsed_Json/batched.json", "r") as f:
+        with open(self.master_path+"/Data/Parsed_Json/batched_same_operator.json", "r") as f:
+        # with open(self.master_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
         if (num_orders is not None):
             data_bank = BatchData(num_orders)
             input_json = data_bank.generate_batch().generate_due_dates(1000000, 2/3)
             data_bank.save_as_json(input_json, "/Parsed_Json/batched.json")
         self.num_divides = 3
-        self.timeout = 3
+        self.timeout = 60
         self.iter_per_divide = 2*np.ones([num_divides], dtype=int)
         self.env = Environment(input_json, self.weight_json)
         self.num_machines = len(self.env.machines)
@@ -40,6 +40,7 @@ class Scheduler:
         num_oper_good_test = 15
         num_machines_good_test = 35
         self.max_permutations = math.factorial(num_oper_good_test)*math.comb(num_machines_good_test*num_time_steps_good_test, num_oper_good_test)
+        self.balance_json = self.env.get_balance_weight()
         
     def is_too_complex(self, num_time_steps, num_unlock_oper):
         """Calculates if the complexity of the planned unlocked ILP is smaller or greater than a good reference.
@@ -138,6 +139,9 @@ class Scheduler:
             dict = self.env.to_ilp(unlock, lock, t_interval)
             instance, timed_out = self.env.run_ilp_instance(dict, timelimit=self.timeout)
             self.env.update_from_ilp_solution(instance, t_interval)
+            is_schedule_improved =  self.env.is_schedule_improved()
+            if not (is_schedule_improved):
+                self.env.revert_update_from_ilp()
             return ()
         preferred_unlock_amount = num_unlock
         while (self.is_too_complex(num_time_steps, preferred_unlock_amount)):
@@ -174,6 +178,9 @@ class Scheduler:
             dict = self.env.to_ilp(sub_batch, locked_part, t_interval)
             instance, _ = self.env.run_ilp_instance(dict, timelimit=self.timeout)
             self.env.update_from_ilp_solution(instance, t_interval)
+            is_schedule_improved =  self.env.is_schedule_improved()
+            if not (is_schedule_improved):
+                self.env.revert_update_from_ilp()
 
     def run_group(self, type, num_unlock, t_interval, is_time_based=True):
         """This runs all orders or machines in random order and can
@@ -223,6 +230,9 @@ class Scheduler:
     def update_or_rerun(self, timed_out: bool, instance, unlocked: list[int],
                         locked: list[int], t_interval: list[int,int]) -> None:
         self.env.update_from_ilp_solution(instance, t_interval)
+        is_schedule_improved =  self.env.is_schedule_improved()
+        if not (is_schedule_improved):
+            self.env.revert_update_from_ilp()
         if (timed_out):
             print("Maximum time limit reached")
             max_permutations_scaler = 5
@@ -230,6 +240,66 @@ class Scheduler:
             self.run_semi_batch(unlocked, locked, t_interval)
             self.max_permutations *= max_permutations_scaler
 
+    def compute_theoretical_max(self) -> int:
+        print("theoretical_best_makespan: ", self.theoretical_best_makespan())
+        print("theoretical_best_makespan_due_date: ", self.theoretical_best_makespan_due_date())
+        print("theoretical_best_lead_time: ", self.theoretical_best_lead_time())
+        print("theoretical_best_num_operators: ", self.theoretical_best_num_operators())
+        print("theoretical_best_due_dates: ", self.theoretical_best_due_dates())
+    
+    def theoretical_best_makespan(self) -> int:
+        total_time = 0
+        for _, oper in enumerate(self.env.schedule[1,:]):
+            total_time += math.ceil(oper.execution_time/self.env.time_step_size)
+        factor = self.weight_json["make_span"]*self.balance_json["make_span"]
+        # theoretical_best_makespan = factor*math.ceil(total_time/self.env.time_step_size)
+        theoretical_best_makespan = factor*total_time
+        # theoretical_best_makespan = math.ceil(total_time_in_index/len(self.env.machines))
+        return (theoretical_best_makespan)
+    
+    def theoretical_best_makespan_due_date(self) -> int:
+        orders = np.array(self.env.orders)
+        orders_due_dates = np.array([order.due_date for order in orders])
+        last_due_date = math.floor(np.amax(orders_due_dates)/self.env.time_step_size)
+        return (last_due_date)
+    
+    def theoretical_best_lead_time(self) -> np.ndarray:
+        def traverse_child(operation, current_lead_time: float):
+            children = operation.children
+            # current_best_lead_time = current_lead_time + operation.execution_time
+            current_best_lead_time = current_lead_time + math.ceil(operation.execution_time/self.env.time_step_size)
+            if (not children):
+                if (current_best_lead_time > self.lead_time):
+                    self.lead_time = current_best_lead_time
+                    return
+            for child in children:
+                traverse_child(child, current_best_lead_time)
+            
+        orders_best_lead_time = np.empty([2,len(self.env.orders)], dtype=object)
+        orders_best_lead_time[0,:] = np.array(self.env.orders)
+        for iOrder, order in enumerate(self.env.orders):
+            opers_np = np.array(order.operations)
+            oper_indices = np.where(np.isin(self.env.schedule[1,:], opers_np))[0]
+            final_oper_of_order_index = oper_indices[np.argmax(self.env.schedule[2,oper_indices])]
+            final_oper_of_order = self.env.schedule[1,final_oper_of_order_index]
+            children = final_oper_of_order.children
+            self.lead_time = 0
+            current_lead_time = math.ceil(final_oper_of_order.execution_time/self.env.time_step_size)
+            # current_lead_time = final_oper_of_order.execution_time
+            for child in children:
+                traverse_child(child, current_lead_time)
+            # orders_best_lead_time[1,iOrder] = math.ceil(self.lead_time/self.env.time_step_size)
+            orders_best_lead_time[1,iOrder] = self.lead_time
+        factor = self.weight_json["lead_time"]*self.balance_json["lead_time"]
+        theoretical_best_lead_time = factor*np.sum(orders_best_lead_time[1,:])
+        return (theoretical_best_lead_time)                
+    
+    def theoretical_best_num_operators(self) -> int:
+        return 0
+    
+    def theoretical_best_due_dates(self) -> int:
+        return 0
+    
     def print_progress(self):
         self.loops_count += 1
         print("############ Main Loop: " + str(self.loops_count) 
@@ -241,7 +311,6 @@ class Scheduler:
         string = str(time_value) + "s"
         return (string)
 
-    # def csv_save(self, is_data_new, unlock, lock, env):
     def csv_save(self, is_data_new, unlock, lock):
         schedule = self.env.schedule
         np_save = np.zeros([4,len(schedule[1,:])])
@@ -274,6 +343,7 @@ class Scheduler:
 
     def schedule(self):
         self.main_start_time = time.time()
+        self.env.divide_timeline()
         for iDivide in range(self.num_divides):
             if (iDivide != 0):
                 print("\n############ Divided Timeline ############")
@@ -298,6 +368,7 @@ if __name__ == "__main__":
     final_obj_value = scheduler.env.get_objective_value()
     print("initial objective value:\n",scheduler.init_obj_value[0])
     print("final objective value:\n",final_obj_value[0])
+    print(scheduler.compute_theoretical_max())
     scheduler.env.plot(real_size=True,save_plot=True)
     export_name = str(len(scheduler.env.orders))
     export_name = [export_name+str(key)+"_"+str(value)+"__" for key, value in scheduler.weight_json.items()]

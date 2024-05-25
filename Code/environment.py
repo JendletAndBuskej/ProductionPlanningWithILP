@@ -23,6 +23,7 @@ class Environment:
         self.precedence = self.initialize_precedence()
         self.model = self.create_ilp_model(weight_json)
         self.weight_json = weight_json
+        self.previous_obj_value = None
     
     ### INITIALIZATION ###
     def initialize_machines(self):
@@ -226,16 +227,16 @@ class Environment:
         """
         scaled_time_step = self.time_step_size/100000
         balance_json = {
-        "make_span": 2*scaled_time_step/(len(self.schedule[1,:])),
-        "make_span_real": scaled_time_step,
-        "lead_time": scaled_time_step/(len(self.orders)),
-        "lead_time_fake": 2*scaled_time_step/(len(self.schedule[1,:])),
-        "operators": 10/self.weight_json["max_amount_operators"],
-        "fake_operators": 1/len(self.time_line),
-        "earliness": 1,
-        "tardiness": 1,
-        # "earliness": scaled_time_step/(len(self.orders)),
-        # "tardiness": scaled_time_step/(len(self.orders)),
+            "make_span": 2*scaled_time_step/(len(self.schedule[1,:])),
+            "make_span_real": scaled_time_step,
+            "lead_time": scaled_time_step/(len(self.orders)),
+            "lead_time_fake": 2*scaled_time_step/(len(self.schedule[1,:])),
+            "operators": 10/self.weight_json["max_amount_operators"],
+            "fake_operators": 1/len(self.time_line),
+            "earliness": 1,
+            "tardiness": 1,
+            # "earliness": scaled_time_step/(len(self.orders)),
+            # "tardiness": scaled_time_step/(len(self.orders)),
         }
         return (balance_json)
     
@@ -558,13 +559,14 @@ class Environment:
                 orders_finished_time[iOrd+1] = order_finished
             return (orders_finished_time)
 
+        self.save_previous_schedule()
         self.mapping_unlocked_opers = [] 
         num_machines = { None: len(self.machines)}
         num_opers = { None: len(unlocked_opers_indices)}
         orders_within_interval = get_orders_within_interval()
         num_orders = { None: len(orders_within_interval)}
         map_unlocked_operations()
-        previous_schedule = get_previous_schedule()
+        previous_schedule_ilp = get_previous_schedule()
         num_locked_opers = { None: len(locked_opers_indices)}
         num_time_indices = { None: time_interval[1] - time_interval[0]}
         time_index_to_real = { None: int(self.time_step_size)}
@@ -589,7 +591,7 @@ class Environment:
                 "num_locked_opers" : num_locked_opers,
                 "num_time_indices" : num_time_indices,
                 "valid_machines" : valid_machines,
-                "previous_schedule" : previous_schedule,
+                "previous_schedule" : previous_schedule_ilp,
                 "precedence" : precedence, 
                 "locked_prece_before": prece_locked_before,
                 "locked_prece_after": prece_locked_after,
@@ -645,6 +647,19 @@ class Environment:
         solved_instance, timed_out = run_ilp(self.model, ilp_data, timelimit=timelimit)
         return (solved_instance, timed_out)
 
+    def save_previous_schedule(self) -> None:
+        self.previous_obj_value = self.get_objective_value()[0]["total_value"]
+        self.previous_schedule = self.schedule
+        
+    def is_schedule_improved(self) -> bool:
+        new_obj_value = self.get_objective_value()[0]["total_value"]
+        if (self.previous_obj_value >= new_obj_value):
+            return True
+        return False
+    
+    def revert_update_from_ilp(self):
+        self.schedule = self.previous_schedule
+        
     def update_from_ilp_solution(self, ilp_solution, t_interval) -> None:
         """Updates Environment's class variable self.schedule according to the solution of the ILP.
 
@@ -723,14 +738,6 @@ class Environment:
         
         def make_span():
             return(np.sum(self.schedule[2,:])*self.weight_json["make_span"]*balance_json["make_span"],np.sum(self.schedule[2,:]))
-            # start_time = np.zeros([len(self.schedule[2,:])])
-            # end_time = np.zeros([len(self.schedule[2,:])])
-            # for i in range(len(self.schedule[2,:])):
-            #     exec_time = np.ceil(self.schedule[1,i].execution_time/self.time_step_size)
-            #     end_time[i] = self.schedule[2,i] #+ exec_time
-            # cum_sum = np.sum(end_time)- np.sum(start_time)
-            # weighted = cum_sum*weight_json["make_span"]*balance_json["make_span"]
-            # return (weighted, cum_sum)
 
         def lead_time():
             order_lead_time = np.zeros([len(self.orders)])
@@ -859,7 +866,8 @@ class Environment:
         def get_operation_text(operation: "Operation") -> str:
             operation_text = ""
             if operation.order.operations[-1] == operation:
-                operation_text = operation.name.split("FG_")[-1]
+                # operation_text = operation.name.split("FG_")[-1]
+                operation_text = operation.order.name.split("T")[-1]
             return operation_text
         
         def get_machine_ticks() -> list[str]:
@@ -900,7 +908,7 @@ class Environment:
             plt.barh(y=machine_id, width=exec_time, left=offset, alpha=0.4, 
                      color=order_color, edgecolor='black', linewidth=0.7)
             if (not hide_text):
-                plt.text(x=offset, y=machine_id+0.3, s=finished_operation_text)
+                plt.text(x=offset, y=machine_id+0.1, s=finished_operation_text)
             num_seed += 1
         plt.title("Scheduled Operations", fontsize=20)
         ax.set_xlabel(" Time", fontsize=16)
@@ -916,10 +924,14 @@ class Environment:
         #     if (iXtick%tick_distances==0):
         #        xticks[iXtick//tick_distances] = xtick 
         # ax.set_xticks(xticks)
-        # xlim_upper = self.time_line[-1]
-        # ax.set_xlim([0, xlim_upper])
+        hide_due_dates = True
+        if (self.weight_json["earliness"] > 0 or self.weight_json["tardiness"] > 0): hide_due_dates = False
         xticks = self.time_line
         ax.set_xticks(xticks)
+        xlims = [order_due_dates[order]["due_date"] for order in order_due_dates.keys()] + [self.time_line[-1]]
+        xlim_upper = max(xlims)
+        if (hide_due_dates): xlim_upper = self.time_line[-1]
+        ax.set_xlim([0, xlim_upper])
 
         machine_ticks = get_machine_ticks()
         ax.set_yticks(np.arange(len(self.machines)))
@@ -949,34 +961,34 @@ class Environment:
         num_seed = 42
         for iDue_date, due_date in enumerate(due_dates):
             num_duplicates = due_date_duplicates[iDue_date]
-            label = order_final_oper[iDue_date].name.split("FG_")[-1]
+            # label = order_final_oper[iDue_date].name.split("FG_")[-1]
+            label = order_final_oper[iDue_date].order.name.split("T")[-1]
             final_oper_index = np.where(np.isin(self.schedule[1,:], order_final_oper[iDue_date]))[0]
             final_oper_machine = self.schedule[0,final_oper_index]
             ymin = final_oper_machine-2
             ymax = final_oper_machine+2
             order_name = order_names[iDue_date]
             order_color = set_and_get_order_color(order_name, seed=num_seed)
-            random_offset = random.randint(-int(self.time_line[-1]), int(self.time_line[-1]))
-            random_offset /= 100
-            # ax.vlines(x=due_date+random_offset, ymin=ymin, ymax=ymax, colors=order_color, 
+            if (hide_due_dates): continue
             ax.vlines(x=due_date, ymin=ymin, ymax=ymax, colors=order_color, 
                       ls='--', lw=3, label=label, alpha=0.6)
             num_seed += 1
         ncol = math.ceil(len(due_dates)/48)
-        ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left',ncol=ncol)
+        if not (hide_due_dates): 
+            ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left',ncol=ncol)
         if (hide_text):
             ax.xaxis.grid(False)
             ax.set_xticklabels([""])
         if save_plot:
             plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
             plot_name = datetime.now().strftime("%H_%M_%S")
-            # print(plot_name)
+            print("\t\t\tPlot: ",plot_name)
             plt.savefig(plot_path+plot_name+".png")
             return
         plt.show()
         
     def schedule_to_csv(self, file_name = "schedule") -> None:
-        schedule_np = np.empty([5,self.schedule.shape[1]], dtype=object)
+        schedule_np = np.empty([7,self.schedule.shape[1]], dtype=object)
         cols = []
         for operation_index in range(self.schedule.shape[1]):
             operation = self.schedule[1,operation_index]
@@ -991,7 +1003,10 @@ class Environment:
             schedule_np[3,operation_index] = finished_time
             schedule_np[4,operation_index] = order
             cols += ["Oper_"+str(operation_index)]
-        schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID"])
+        schedule_pd = pd.DataFrame(schedule_np, columns=cols, index=["Name", "Machine ID", "Start Time", "Finished Time", "Order ID", "Due Dates", "Time Step Size"])
+        for order in self.orders:
+            schedule_np[5,order.id] = order.due_date
+        schedule_np[6,0] = self.time_step_size
         csv_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/CSV/"
         if not os.path.exists(csv_path):
             os.makedirs(csv_path)
