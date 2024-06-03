@@ -231,12 +231,10 @@ class Environment:
             "make_span_real": scaled_time_step,
             "lead_time": scaled_time_step/(len(self.orders)),
             "lead_time_fake": 2*scaled_time_step/(len(self.schedule[1,:])),
-            "operators": 10/self.weight_json["max_amount_operators"],
+            "operators": 1/self.weight_json["max_amount_operators"],
             "fake_operators": 1/len(self.time_line),
-            "earliness": 1,
-            "tardiness": 1,
-            # "earliness": scaled_time_step/(len(self.orders)),
-            # "tardiness": scaled_time_step/(len(self.orders)),
+            "earliness": scaled_time_step/(len(self.orders)),
+            "tardiness": scaled_time_step/(len(self.orders)),
         }
         return (balance_json)
     
@@ -714,6 +712,7 @@ class Environment:
         ilp_solution_np = instance_2_numpy(ilp_solution.assigned, solution_shape)
         update_unlocked_operations(ilp_solution_np, num_unlocked_oper)
 
+    ### MISC ###
     def get_objective_value(self):
         """returns objective function value and then the actual time without weights.
 
@@ -754,6 +753,7 @@ class Environment:
                         order_end_time = oper_end_time
                 order_lead_time[iOrder] = (order_end_time - order_start_time)
             weighted = order_lead_time*self.weight_json["lead_time"]*balance_json["lead_time"]
+            # print("LT factor: ",self.weight_json["lead_time"]*balance_json["lead_time"])
             return(weighted, order_lead_time)
 
         def operators():
@@ -765,9 +765,11 @@ class Environment:
                     oper_start_time = self.schedule[2,iOper]
                     if (time_index >= oper_start_time and time_index < oper_end_time):
                         operators_per_time[time_index] += oper.num_operators
+            # print(operators_per_time)
             operator_diff = (operators_per_time 
                              - self.weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
             operator_diff = np.where(operator_diff < 0, 0, operator_diff)
+            # operator_diff[operator_diff < self.weight_json["max_amount_operators"]] = self.weight_json["max_amount_operators"]
             weighted = operator_diff*self.weight_json["operators"]*balance_json["operators"]
             return(weighted ,operators_per_time)
         
@@ -780,10 +782,16 @@ class Environment:
                     oper_start_time = self.schedule[2,iOper]
                     if (time_index >= oper_start_time and time_index < oper_end_time):
                         operators_per_time[time_index] += oper.num_operators
-            operator_diff = (operators_per_time 
-                             - self.weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
-            operator_diff = np.where(operator_diff < 0, 0, operator_diff)
-            weighted = operator_diff*self.weight_json["fake_operators"]*balance_json["fake_operators"]
+            # operator_diff = (operators_per_time 
+            #                  - self.weight_json["max_amount_operators"]*np.ones([len(self.time_line)]))
+            # operator_diff = np.where(operator_diff < 0, 0, operator_diff)
+            operator_diff = operators_per_time 
+            # print("\nSTART: ",operator_diff)
+            operator_diff[operator_diff < self.weight_json["max_amount_operators"]] = self.weight_json["max_amount_operators"]
+            # print("TO CEIL: ",operator_diff)
+            factor = self.weight_json["fake_operators"]*balance_json["fake_operators"]
+            weighted = factor*operator_diff
+            # print("AFTER BALANCE: ",weighted)
             return(weighted ,operators_per_time)
 
         def earliness_and_tardiness():
@@ -1011,9 +1019,27 @@ class Environment:
         if (theoretical_max is not None):
             i = 0
             for key, value in theoretical_max.items():
+                if (value == 0): continue
+                if (value == 0.0): continue
                 schedule_np[7,i] = key+": "+str(value)
                 i += 1
         csv_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))+"/Data/CSV/"
         if not os.path.exists(csv_path):
             os.makedirs(csv_path)
         schedule_pd.to_csv(csv_path+file_name+".csv", index=True, sep="\t", encoding="utf-8")
+    
+    def parse_csv(self, path):
+        schedule_pd = pd.read_csv(path, sep="\t")
+        return (schedule_pd)
+
+    def csv_to_schedule(self, schedule_pd) -> None:
+        # Construction of timeline should be changed and scalable. Currently hårdknackad
+        self.divide_timeline(3)
+        for iOper in range(1,schedule_pd.shape[1]):
+            oper_info = schedule_pd.iloc[:,iOper]
+            oper_start_time_index = int(float(oper_info[2])/self.time_step_size)
+            self.schedule[0,iOper-1] = int(oper_info[1])
+            self.schedule[2,iOper-1] = oper_start_time_index
+        for iOrd, order in enumerate(self.orders):
+            csv_due_date = float(schedule_pd.iloc[5,iOrd+1])
+            order.due_date = csv_due_date

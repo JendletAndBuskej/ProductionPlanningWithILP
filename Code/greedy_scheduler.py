@@ -6,19 +6,20 @@ from datetime import datetime
 
 class GreedyScheduler:
     def __init__(self, input_json: dict, settings_json: dict) -> None:
-        env = Environment(input_json)
-        self.operations = env.schedule[1,:]
+        self.env = Environment(input_json)
+        self.operations = self.env.schedule[1,:]
         self.time_step_size = settings_json["time_step_size"]
         self.num_operators = settings_json["num_operators"]
         self.max_timeline = settings_json["max_timeline"]
-        self.orders = env.orders
+        self.orders = self.env.orders
         self.operations_precedence_time = np.zeros([1,self.operations.shape[0]],dtype=float)
-        self.machines = self.instanciate_machines(env.machines)
+        self.machines = self.instanciate_machines()
         self.oper_num_childs = self.instanciate_num_childs()
         self.selection_mask = self.get_selection_mask()
         self.due_date_prio = self.instanciate_due_date_prio()
         
-    def instanciate_machines(self, machine_info):
+    def instanciate_machines(self):
+        machine_info = self.env.machines
         machines = []
         for m_id, m_type in machine_info.items():
             machines += [Machine(id=m_id,m_type=m_type)]
@@ -98,12 +99,21 @@ class GreedyScheduler:
         return (earliest_machine_id)
     
     def get_obj_value(self):
+        scaled_time_step = self.env.time_step_size/100000
+        balance_json = {
+            "make_span": 2*scaled_time_step/(self.env.schedule.shape[1]),
+            "lead_time": scaled_time_step/(len(self.env.orders)),
+            "operators": 1/self.num_operators,
+            "fake_operators": 1/len(self.env.time_line),
+            "earliness": scaled_time_step/(len(self.env.orders)),
+            "tardiness": scaled_time_step/(len(self.env.orders)),
+        }
         obj_value = {}
-        obj_value["lead_time"] = self.get_obj_lead_time()
-        obj_value["make_span"] = self.get_obj_make_span()
-        obj_value["make_span_fake"] = self.get_obj_make_span_fake()
-        obj_value["due_date"] = self.get_obj_due_date()
-        obj_value["operators"] = self.get_obj_operators()
+        obj_value["lead_time"] = balance_json["lead_time"]*self.get_obj_lead_time()
+        # obj_value["make_span"] = balance_json["make_span"]*self.get_obj_make_span()
+        obj_value["make_span"] = balance_json["make_span"]*self.get_obj_make_span_fake()
+        obj_value["due_date"] = balance_json["make_span"]*self.get_obj_due_date()
+        obj_value["operators"] = balance_json["operators"]*self.get_obj_operators()
         obj_value["total"] = np.sum(np.array([value for key, value in obj_value.items()]))
         return obj_value
 
@@ -115,8 +125,8 @@ class GreedyScheduler:
             opers = machine.operations
             if (opers is None): continue
             for iOper, oper in enumerate(opers):
-                start_time = machine.start_times[iOper]
-                finish_time = machine.finish_times[iOper]
+                start_time = math.ceil(machine.start_times[iOper]/self.time_step_size)
+                finish_time = math.ceil(machine.finish_times[iOper]/self.time_step_size)
                 order = oper.order
                 order_index = np.where(np.isin(orders_lead_time[0,:], order))[0]
                 order_lead_time_start = orders_lead_time[1,order_index]
@@ -136,9 +146,10 @@ class GreedyScheduler:
     def get_obj_make_span_fake(self):
         make_span_fake = 0
         for machine in self.machines:
-            start_times = np.array(machine.start_times)
+            if (machine.start_times is None): continue
+            start_times = np.array([math.ceil(start_time/self.time_step_size) for start_time in machine.start_times])
+            # start_times = np.array(math.ceil(machine.start_times/self.time_step_size))
             start_times_sum = np.sum(start_times)
-            if (start_times_sum is None): continue
             make_span_fake += start_times_sum
         return make_span_fake
 
@@ -155,12 +166,30 @@ class GreedyScheduler:
                 time_interval = np.arange(start_time_interval, finish_time_interval)
                 num_operators[0,time_interval] += oper.num_operators
         remove_target = self.num_operators*np.ones([1,num_time_intervals])
-        overspill_operators = num_operators - remove_target
-        overspill_operators[overspill_operators < 0.0] = 0.0
+        # overspill_operators = num_operators - remove_target
+        overspill_operators = num_operators
+        overspill_operators[overspill_operators < self.num_operators] = self.num_operators
         operators_value = np.sum(overspill_operators)
         return operators_value
 
     def get_obj_due_date(self):
+        orders_due_date = np.ones([3,len(self.orders)], dtype=object)
+        orders_due_date[0,:] = self.orders
+        orders_due_date[2,:] = np.array([order.due_date for order in self.orders])
+        for machine in self.machines:
+            opers = machine.operations
+            if (opers is None): continue
+            for iOper, oper in enumerate(opers):
+                finish_time = machine.finish_times[iOper]
+                order = oper.order
+                order_index = np.where(np.isin(orders_due_date[0,:], order))[0]
+                order_finished_time = orders_due_date[1,order_index]
+                if (finish_time > order_finished_time): 
+                    orders_due_date[1,order_index] = finish_time
+        due_date = np.sum(np.diff(orders_due_date[1:,:], axis=0))
+        return due_date
+    
+    def get_obj_tardiness(self):
         orders_due_date = np.ones([3,len(self.orders)], dtype=object)
         orders_due_date[0,:] = self.orders
         orders_due_date[2,:] = np.array([order.due_date for order in self.orders])
@@ -352,8 +381,8 @@ class GreedyScheduler:
             #    xticks[iXtick//tick_distances] = xtick 
         # ax.set_xticks(xticks)
         # xlim_upper = self.time_line[-1]
-        xlim_upper = xticks[-1]
-        ax.set_xlim([0, xlim_upper])
+        # xlim_upper = xticks[-1]
+        # ax.set_xlim([0, xlim_upper])
         machine_ticks = get_machine_ticks()
         ax.set_yticks(np.arange(len(self.machines)))
         ax.set_yticklabels(machine_ticks, fontsize = 12)
@@ -387,13 +416,15 @@ class GreedyScheduler:
             ymax = order_final_machine[iDue_date]+2
             order_name = order_names[iDue_date]
             order_color = set_and_get_order_color(order_name, seed=num_seed) 
-            ax.vlines(x=due_date, ymin=ymin, ymax=ymax, colors=order_color, 
-                      ls='--', lw=3, label=label, alpha=0.6)
+            # ax.vlines(x=due_date, ymin=ymin, ymax=ymax, colors=order_color, 
+                    #   ls='--', lw=3, label=label, alpha=0.6)
             num_seed += 1
-        ncol = math.ceil(len(due_dates)/48)
-        ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left',ncol=ncol)
+        # ncol = math.ceil(len(due_dates)/48)
+        # ax.legend(bbox_to_anchor=(1.0, 1), loc='upper left',ncol=ncol)
         if save_plot:
-            plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/"
+            plot_path = os.path.dirname(os.path.abspath(__file__))+"/Plots/GreedyScheduler/"
+            if not os.path.exists(plot_path):
+                os.makedirs(plot_path)
             plot_name = datetime.now().strftime("%H_%M_%S")
             plt.savefig(plot_path+plot_name+".png")
             return
@@ -404,14 +435,14 @@ if __name__ == "__main__":
     with open(project_path+"/Data/Parsed_Json/batched.json", "r") as f:
             input_json = json.load(f)
     settings_json = {
-        "time_step_size" : 25000,
-        "num_operators" : 50,
-        "max_timeline" : 500000,
+        "time_step_size" : 10719.675,
+        "num_operators" : 30,
+        "max_timeline" : 700000,
     }
     gs = GreedyScheduler(input_json,settings_json)
     gs.make_span_scheduling()
     print(gs.get_obj_value())
-    gs.plot()
+    gs.plot(save_plot=True)
     gs.operators_scheduling()
     print(gs.get_obj_value())
-    gs.plot()
+    gs.plot(save_plot=True)

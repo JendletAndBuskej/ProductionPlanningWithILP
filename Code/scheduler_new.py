@@ -13,11 +13,11 @@ class Scheduler:
         self.weight_json = weight_json
         if (weight_json is None):
             self.weight_json = {
-                "max_amount_operators": 50,
+                "max_amount_operators": 30,
                 "make_span": 10,
-                "lead_time": 100,
-                "operators": 0,
-                "fake_operators": 0,
+                "lead_time": 0,
+                "operators": 100,
+                "fake_operators": 100,
                 "earliness": 0,
                 "tardiness": 0,
             }
@@ -40,7 +40,6 @@ class Scheduler:
         num_oper_good_test = 15
         num_machines_good_test = 35
         self.max_permutations = math.factorial(num_oper_good_test)*math.comb(num_machines_good_test*num_time_steps_good_test, num_oper_good_test)
-        self.balance_json = self.env.get_balance_weight()
         
     def is_too_complex(self, num_time_steps, num_unlock_oper):
         """Calculates if the complexity of the planned unlocked ILP is smaller or greater than a good reference.
@@ -241,6 +240,7 @@ class Scheduler:
             self.max_permutations *= max_permutations_scaler
 
     def compute_theoretical_max(self) -> int:
+        self.balance_json = self.env.get_balance_weight()
         theoretical_max = {}
         make_span = self.theoretical_best_makespan()
         lead_time = self.theoretical_best_lead_time()
@@ -301,7 +301,7 @@ class Scheduler:
         return (theoretical_best_lead_time)                
     
     def theoretical_best_num_operators(self) -> int:
-        return 0
+        return self.weight_json["max_amount_operators"]*self.balance_json["fake_operators"]
     
     def theoretical_best_due_dates(self) -> int:
         return 0
@@ -368,15 +368,33 @@ class Scheduler:
 
 if __name__ == "__main__":
     scheduler = Scheduler()
-    scheduler.env.plot()
+    csv_path = scheduler.master_path+"/Data/CSV/"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___lead_time_100.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_1___lead_time_10___earliness_10___tardiness_100.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_0___lead_time_10___operators_100___fake_operators_100___earliness_0___tardiness_0.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_0___lead_time_100___operators_10___fake_operators_10___earliness_0___tardiness_0.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_10___lead_time_0___operators_100___fake_operators_100___earliness_0___tardiness_0.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_0___lead_time_0___operators_10___fake_operators_10___earliness_1___tardiness_100.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_0___lead_time_0___operators_100___fake_operators_100___earliness_1___tardiness_100.csv"
+    # csv_file = csv_path+"25_operations___max_amount_operators_50___make_span_10___lead_time_100___operators_0___fake_operators_0___earliness_0___tardiness_0.csv"
+    # print(csv_file)
+    # scheduler_import = scheduler.env.parse_csv(csv_file)
+    # scheduler.env.csv_to_schedule(scheduler_import)
+    
+    # scheduler.env.plot()
     scheduler.schedule()
     print("Total Run Time: " + scheduler.time_to_string(scheduler.main_start_time))
     final_obj_value = scheduler.env.get_objective_value()
     print("initial objective value:\n",scheduler.init_obj_value[0])
     print("final objective value:\n",final_obj_value[0])
+    print("Improvement: ",final_obj_value[0]["total_value"]/scheduler.init_obj_value[0]["total_value"])
     theoretical_max = scheduler.compute_theoretical_max()
+    print("theoretical_max:\n",theoretical_max)
+    print("Theoretical improvement: ",final_obj_value[0]["total_value"]/theoretical_max["total_value"])
     scheduler.env.plot(real_size=True,save_plot=True)
     export_name = str(len(scheduler.env.orders))+"_operations"
     for key, value in scheduler.weight_json.items():
+        if (value == 0): continue
+        if (value == 0.0): continue
         export_name += "___"+key+"_"+str(value)
     scheduler.env.schedule_to_csv(export_name, theoretical_max=theoretical_max)
