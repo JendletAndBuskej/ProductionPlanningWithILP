@@ -14,10 +14,10 @@ class Scheduler:
         if (weight_json is None):
             self.weight_json = {
                 "max_amount_operators": 30,
-                "make_span": 10,
-                "lead_time": 0,
-                "operators": 100,
-                "fake_operators": 100,
+                "make_span": 0,
+                "lead_time": 100,
+                "operators": 10,
+                "fake_operators": 10,
                 "earliness": 0,
                 "tardiness": 0,
             }

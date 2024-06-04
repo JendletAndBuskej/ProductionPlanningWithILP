@@ -3,6 +3,8 @@ from environment import Environment
 import matplotlib.pyplot as plt 
 from classes import Machine, Operation
 from datetime import datetime
+import warnings
+warnings.filterwarnings("ignore")
 
 class GreedyScheduler:
     def __init__(self, input_json: dict, settings_json: dict) -> None:
@@ -11,6 +13,12 @@ class GreedyScheduler:
         self.time_step_size = settings_json["time_step_size"]
         self.num_operators = settings_json["num_operators"]
         self.max_timeline = settings_json["max_timeline"]
+        self.w_makespan = settings_json["make_span"]
+        self.w_lead_time = settings_json["lead_time"]
+        self.w_operators = settings_json["operators"]
+        self.w_fake_operators = settings_json["fake_operators"]
+        self.w_earliness = settings_json["earliness"]
+        self.w_tardiness = settings_json["tardiness"]
         self.orders = self.env.orders
         self.operations_precedence_time = np.zeros([1,self.operations.shape[0]],dtype=float)
         self.machines = self.instanciate_machines()
@@ -109,11 +117,13 @@ class GreedyScheduler:
             "tardiness": scaled_time_step/(len(self.env.orders)),
         }
         obj_value = {}
-        obj_value["lead_time"] = balance_json["lead_time"]*self.get_obj_lead_time()
+        obj_value["lead_time"] = self.w_lead_time*balance_json["lead_time"]*self.get_obj_lead_time()
         # obj_value["make_span"] = balance_json["make_span"]*self.get_obj_make_span()
-        obj_value["make_span"] = balance_json["make_span"]*self.get_obj_make_span_fake()
-        obj_value["due_date"] = balance_json["make_span"]*self.get_obj_due_date()
-        obj_value["operators"] = balance_json["operators"]*self.get_obj_operators()
+        obj_value["make_span"] = self.w_makespan*balance_json["make_span"]*self.get_obj_make_span_fake()
+        # obj_value["due_date"] = self.w_makespan*balance_json["make_span"]*self.get_obj_due_date()
+        obj_value["tardiness"] = self.w_tardiness*balance_json["tardiness"]*self.get_obj_tardiness()
+        obj_value["earliness"] = self.w_earliness*balance_json["earliness"]*self.get_obj_earliness()
+        obj_value["operators"] = self.w_operators*balance_json["operators"]*self.get_obj_operators()
         obj_value["total"] = np.sum(np.array([value for key, value in obj_value.items()]))
         return obj_value
 
@@ -168,7 +178,9 @@ class GreedyScheduler:
         remove_target = self.num_operators*np.ones([1,num_time_intervals])
         # overspill_operators = num_operators - remove_target
         overspill_operators = num_operators
+        print("\n",overspill_operators)
         overspill_operators[overspill_operators < self.num_operators] = self.num_operators
+        print(overspill_operators)
         operators_value = np.sum(overspill_operators)
         return operators_value
 
@@ -197,14 +209,37 @@ class GreedyScheduler:
             opers = machine.operations
             if (opers is None): continue
             for iOper, oper in enumerate(opers):
-                finish_time = machine.finish_times[iOper]
+                finish_time = math.ceil(machine.finish_times[iOper]/self.time_step_size)
                 order = oper.order
                 order_index = np.where(np.isin(orders_due_date[0,:], order))[0]
-                order_finished_time = orders_due_date[1,order_index]
+                order_finished_time = math.ceil(orders_due_date[1,order_index]/self.time_step_size)
                 if (finish_time > order_finished_time): 
                     orders_due_date[1,order_index] = finish_time
-        due_date = np.sum(np.diff(orders_due_date[1:,:], axis=0))
-        return due_date
+        tardiness = 0
+        for iOrd in range(orders_due_date.shape[1]):
+            if orders_due_date[1,iOrd] - orders_due_date[2,iOrd] >= 0:
+                tardiness += orders_due_date[1,iOrd] - orders_due_date[2,iOrd]
+        return tardiness
+    
+    def get_obj_earliness(self):
+        orders_due_date = np.ones([3,len(self.orders)], dtype=object)
+        orders_due_date[0,:] = self.orders
+        orders_due_date[2,:] = np.array([order.due_date for order in self.orders])
+        for machine in self.machines:
+            opers = machine.operations
+            if (opers is None): continue
+            for iOper, oper in enumerate(opers):
+                finish_time = math.ceil(machine.finish_times[iOper]/self.time_step_size)
+                order = oper.order
+                order_index = np.where(np.isin(orders_due_date[0,:], order))[0]
+                order_finished_time = math.ceil(orders_due_date[1,order_index]/self.time_step_size)
+                if (finish_time > order_finished_time): 
+                    orders_due_date[1,order_index] = finish_time
+        earliness = 0
+        for iOrd in range(orders_due_date.shape[1]):
+            if orders_due_date[1,iOrd] - orders_due_date[2,iOrd] <= 0:
+                earliness += orders_due_date[2,iOrd] - orders_due_date[1,iOrd]
+        return earliness
     
     def make_span_scheduling(self):
         self.reset_scheduler()
@@ -273,8 +308,10 @@ class GreedyScheduler:
                 selected_operation_precedence_time = self.operations_precedence_time[0,selected_operation_index]
                 selected_machine_id = self.get_earliest_machine_id(selected_operation_mIDS, selected_operation_precedence_time)
                 selected_machine = self.machines[selected_machine_id]
-                operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time, iTI*self.time_step_size)
+                operation_start_time = max(selected_machine.max_time, selected_operation_precedence_time, (iTI+1)*self.time_step_size)
                 operation_end_time = operation_start_time + selected_operation.execution_time
+                if (self.time_step_size is not None):
+                    operation_end_time = self.time_step_size*math.ceil(operation_end_time/self.time_step_size)
                 num_spill_overs_forward = math.ceil(operation_end_time/self.time_step_size) - iTI - 1
                 if (len(spill_overs) < num_spill_overs_forward + iTI + 1):
                     to_add = num_spill_overs_forward + iTI + 1 - len(spill_overs)
@@ -282,7 +319,8 @@ class GreedyScheduler:
                 for iSpill, spill_over_elem in enumerate(spill_overs[iTI+1:iTI+num_spill_overs_forward+1]):
                     spill_over_elem += selected_operation.num_operators
                     spill_overs[iTI+1+iSpill] = spill_over_elem
-                selected_machine.add_operation(selected_operation, operation_start_time)
+                indexed_time = self.time_step_size
+                selected_machine.add_operation(selected_operation, operation_start_time, indexed_time)
                 self.update_selection_mask(selected_operation)
                 self.update_precedence_times(selected_operation, operation_end_time)
             iTI += 1
@@ -438,11 +476,18 @@ if __name__ == "__main__":
         "time_step_size" : 10719.675,
         "num_operators" : 30,
         "max_timeline" : 700000,
+        "make_span": 10,
+        "lead_time": 10,
+        "operators": 10,
+        "fake_operators": 10,
+        "earliness": 0,
+        "tardiness": 100,
     }
     gs = GreedyScheduler(input_json,settings_json)
     gs.make_span_scheduling()
     print(gs.get_obj_value())
     gs.plot(save_plot=True)
+    print("### OPER ###")
     gs.operators_scheduling()
     print(gs.get_obj_value())
     gs.plot(save_plot=True)
